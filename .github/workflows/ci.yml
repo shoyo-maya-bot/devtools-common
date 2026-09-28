@@ -1,0 +1,14 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: <your-org>/.github/.github/workflows/python-ci.yml@v1
+    secrets: inherit

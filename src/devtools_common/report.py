@@ -2,6 +2,9 @@
 
 レビュー系・検証系ツールは Finding のリストを返し、出力は本モジュールに任せる。
 形式: markdown / html / csv / json（json は AI エージェント・他ツール連携用）
+
+JSON の形式は schemas/report.schema.json（SCHEMA_VERSION）で固定する。仕様は docs/REPORT_FORMAT.md。
+互換性のない変更（キーの削除・改名・型変更）をするときは SCHEMA_VERSION のメジャーを上げる。
 """
 
 from __future__ import annotations
@@ -14,7 +17,10 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from enum import Enum
+from importlib.resources import files
 from typing import Any, TextIO
+
+SCHEMA_VERSION = "1.0"
 
 
 class Severity(str, Enum):
@@ -60,18 +66,44 @@ def _md_cell(v: str) -> str:
     return str(v).replace("|", "\\|").replace("\n", "<br>")
 
 
-def render(findings: list[Finding], fmt: str, *, title: str = "Report", meta: Mapping[str, Any] | None = None) -> str:
+def report_schema() -> dict[str, Any]:
+    """JSON レポートの JSON Schema（利用側の検証・AI への提示用）."""
+    return json.loads(files("devtools_common").joinpath("schemas/report.schema.json").read_text(encoding="utf-8"))
+
+
+def to_json_obj(
+    findings: list[Finding],
+    *,
+    title: str,
+    meta: Mapping[str, Any] | None = None,
+    tool: str = "",
+    tool_version: str = "",
+) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "tool": tool,
+        "tool_version": tool_version,
+        "title": title,
+        "meta": dict(meta or {}),
+        "summary": summarize(findings),
+        "findings": [f.to_dict() for f in findings],
+    }
+
+
+def render(
+    findings: list[Finding],
+    fmt: str,
+    *,
+    title: str = "Report",
+    meta: Mapping[str, Any] | None = None,
+    tool: str = "",
+    tool_version: str = "",
+) -> str:
     counts = summarize(findings)
     meta = dict(meta or {})
     if fmt == "json":
-        return (
-            json.dumps(
-                {"title": title, "meta": meta, "summary": counts, "findings": [f.to_dict() for f in findings]},
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n"
-        )
+        obj = to_json_obj(findings, title=title, meta=meta, tool=tool, tool_version=tool_version)
+        return json.dumps(obj, ensure_ascii=False, indent=2) + "\n"
     if fmt == "csv":
         buf = io.StringIO()
         w = csv.DictWriter(buf, fieldnames=COLUMNS, lineterminator="\n")

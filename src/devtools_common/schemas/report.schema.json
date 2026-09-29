@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/<your-org>/devtools-common/schemas/report.schema.json",
+  "title": "devtools report",
+  "description": "devtools 系ツールが --format json で出力するレポート。仕様: devtools-common/docs/REPORT_FORMAT.md",
+  "type": "object",
+  "required": ["schema_version", "tool", "tool_version", "title", "meta", "summary", "findings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+$",
+      "description": "レポート形式の版。メジャーが変わると互換性がない。利用側はメジャーを確認すること"
+    },
+    "tool": {"type": "string", "description": "出力したツールの CLI 名（例: doc2md, fieldcheck）"},
+    "tool_version": {"type": "string"},
+    "title": {"type": "string"},
+    "meta": {
+      "type": "object",
+      "description": "ツールごとの実行情報（入力件数など）。キーはツールの仕様書を参照。値は文字列・数値・真偽値",
+      "additionalProperties": {"type": ["string", "number", "boolean"]}
+    },
+    "summary": {
+      "type": "object",
+      "required": ["error", "warning", "info"],
+      "additionalProperties": false,
+      "properties": {
+        "error": {"type": "integer", "minimum": 0},
+        "warning": {"type": "integer", "minimum": 0},
+        "info": {"type": "integer", "minimum": 0}
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rule_id", "severity", "message", "location", "field", "expected", "actual", "suggestion"],
+        "additionalProperties": false,
+        "properties": {
+          "rule_id": {"type": "string", "minLength": 1, "description": "指摘の種類。ツールの仕様書に一覧がある"},
+          "severity": {"enum": ["error", "warning", "info"]},
+          "message": {"type": "string", "minLength": 1},
+          "location": {"type": "string", "description": "該当箇所（例: row 12 / line 3 / expense.xlsx）。無ければ空文字"},
+          "field": {"type": "string", "description": "該当項目。無ければ空文字"},
+          "expected": {"type": "string"},
+          "actual": {"type": "string"},
+          "suggestion": {"type": "string", "description": "修正提案。無ければ空文字"}
+        }
+      }
+    }
+  }
+}

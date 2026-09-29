@@ -4,20 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "devtools-common"
-version = "0.1.0"
+version = "0.2.0"
 description = "開発支援ツール群の共有ライブラリ（CLI 規約・ログ・一時ファイル・HTTP・レポート）"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4.18"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-devtools_common = ["py.typed"]
+devtools_common = ["py.typed", "schemas/*.json"]
 
 [tool.ruff]
 line-length = 120

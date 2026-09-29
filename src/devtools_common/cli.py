@@ -65,5 +65,18 @@ def run_main(main: Callable[[list[str] | None], int], argv: list[str] | None = N
         return ExitCode.RUNTIME
 
 
+def write_output(text: str, output: str) -> None:
+    """レポートを標準出力（"-"）またはファイルへ書く（UTF-8・LF）."""
+    if output == "-":
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    else:
+        from pathlib import Path
+
+        path = Path(output)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8", newline="\n")
+
+
 def configure_from_args(args: argparse.Namespace) -> None:
     setup_logging(getattr(args, "log_level", "WARNING"))

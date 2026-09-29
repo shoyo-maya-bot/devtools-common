@@ -7,8 +7,9 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
+from unittest import mock
 
-from devtools_common import cli, config, log, report, tempfiles
+from devtools_common import cli, config, executables, log, report, tempfiles
 from devtools_common.httpclient import HttpClient, HttpError, RateLimiter
 from devtools_common.report import Finding, Severity
 
@@ -42,8 +43,65 @@ class ReportTest(unittest.TestCase):
         html_text = report.render([Finding("X", Severity.INFO, "<script>")], "html")
         self.assertIn("&lt;script&gt;", html_text)
 
+    def test_json_matches_schema(self):
+        import jsonschema
+
+        obj = json.loads(
+            report.render(self.findings, "json", title="T", meta={"n": 1, "ok": True}, tool="x", tool_version="0.1.0")
+        )
+        jsonschema.validate(obj, report.report_schema())
+        self.assertEqual(obj["schema_version"], report.SCHEMA_VERSION)
+        bad = dict(obj, findings=[{"rule_id": "R", "severity": "fatal"}])
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(bad, report.report_schema())
+
     def test_empty(self):
         self.assertIn("指摘はありません", report.render([], "markdown"))
+
+
+class ExecutablesTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.env = mock.patch.dict(os.environ, {}, clear=False)
+        self.env.start()
+        for k in ("DEVTOOLS_SOFFICE", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "LOCALAPPDATA"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        self.env.stop()
+        import shutil
+
+        shutil.rmtree(self.tmp)
+
+    def test_env_override_wins_and_bad_override_is_not_silently_replaced(self):
+        exe = self.tmp / "soffice.exe"
+        exe.write_text("", encoding="utf-8")
+        os.environ["DEVTOOLS_SOFFICE"] = f'"{exe}"'
+        self.assertEqual(executables.find_executable(executables.SOFFICE), str(exe))
+        os.environ["DEVTOOLS_SOFFICE"] = str(self.tmp / "missing.exe")
+        self.assertIsNone(executables.find_executable(executables.SOFFICE))
+        self.assertIn("DEVTOOLS_SOFFICE", executables.not_found_message(executables.SOFFICE))
+
+    def test_windows_program_files_candidates(self):
+        pf = self.tmp / "Program Files"
+        target = pf / "LibreOffice" / "program" / "soffice.exe"
+        target.parent.mkdir(parents=True)
+        target.write_text("", encoding="utf-8")
+        os.environ["ProgramFiles"] = str(pf)  # noqa: SIM112 — Windows の実際の変数名
+        cands = list(executables.candidates(executables.SOFFICE, platform="win32"))
+        self.assertIn(target, cands)
+        local = self.tmp / "Local"
+        os.environ["LOCALAPPDATA"] = str(local)
+        drawio = list(executables.candidates(executables.DRAWIO, platform="win32"))
+        self.assertIn(local / "Programs" / "draw.io" / "draw.io.exe", drawio)
+
+    def test_hint_mentions_install(self):
+        with (
+            mock.patch("shutil.which", return_value=None),
+            mock.patch.object(executables, "candidates", return_value=[]),
+        ):
+            self.assertIsNone(executables.find_executable(executables.TESSERACT))
+        self.assertIn("Tesseract", executables.not_found_message(executables.TESSERACT))
 
 
 class LogTest(unittest.TestCase):
@@ -136,6 +194,12 @@ class HttpTest(unittest.TestCase):
 
 
 class CliTest(unittest.TestCase):
+    def test_write_output_creates_dirs(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / "a" / "b" / "r.json"
+            cli.write_output("x\n", str(target))
+            self.assertEqual(target.read_bytes(), b"x\n")
+
     def test_run_main_maps_exceptions(self):
         def usage(_):
             raise cli.UsageError("bad")

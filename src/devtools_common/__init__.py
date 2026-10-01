@@ -2,7 +2,7 @@
 
 各ツールリポジトリは Git タグ付きの依存として取り込む（フォルダ共有はしない）:
 
-    devtools-common @ git+https://github.com/<your-org>/devtools-common.git@v0.1.0
+    devtools-common @ git+https://github.com/shoyo-maya-bot/devtools-common.git@v0.1.0
 """
 
 from importlib.metadata import PackageNotFoundError, version

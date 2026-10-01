@@ -10,5 +10,5 @@ permissions:
 
 jobs:
   ci:
-    uses: <your-org>/.github/.github/workflows/python-ci.yml@v1
+    uses: shoyo-maya-bot/.github/.github/workflows/python-ci.yml@v1
     secrets: inherit

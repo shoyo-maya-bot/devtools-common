@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/<your-org>/devtools-common/schemas/report.schema.json",
+  "$id": "https://github.com/shoyo-maya-bot/devtools-common/schemas/report.schema.json",
   "title": "devtools report",
   "description": "devtools 系ツールが --format json で出力するレポート。仕様: devtools-common/docs/REPORT_FORMAT.md",
   "type": "object",

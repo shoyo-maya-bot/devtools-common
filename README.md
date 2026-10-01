@@ -22,7 +22,7 @@
 
 ```toml
 dependencies = [
-  "devtools-common @ git+https://github.com/<your-org>/devtools-common.git@v0.2.0",
+  "devtools-common @ git+https://github.com/shoyo-maya-bot/devtools-common.git@v0.2.0",
 ]
 ```
 

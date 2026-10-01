@@ -1,8 +1,8 @@
 """devtools-common — 開発支援ツール群の共有ライブラリ.
 
-各ツールリポジトリは Git タグ付きの依存として取り込む（フォルダ共有はしない）:
+各ツールリポジトリはコミット SHA で固定した Git 依存として取り込む（フォルダ共有はしない）:
 
-    devtools-common @ git+https://github.com/shoyo-maya-bot/devtools-common.git@v0.1.0
+    devtools-common @ git+https://github.com/shoyo-maya-bot/devtools-common.git@<コミット SHA>
 """
 
 from importlib.metadata import PackageNotFoundError, version

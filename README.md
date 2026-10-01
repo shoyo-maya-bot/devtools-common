@@ -22,9 +22,11 @@
 
 ```toml
 dependencies = [
-  "devtools-common @ git+https://github.com/shoyo-maya-bot/devtools-common.git@v0.2.0",
+  "devtools-common @ git+https://github.com/shoyo-maya-bot/devtools-common.git@<コミット SHA>",
 ]
 ```
+
+タグは付け替えられるため、版はコミット SHA で固定します。更新するときは新しい SHA に書き換える PR を出します。
 
 社内パッケージレジストリ（例: GitHub Packages / Artifactory / CodeArtifact）で公開する場合は
 `devtools-common>=0.2,<0.3` のように範囲指定に置き換えます。

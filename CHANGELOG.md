@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/verify_gates.py`、AGENTS.md に AI エージェントの約束
+
 ## [0.2.0] - 2026-09-30
 
 ### Added

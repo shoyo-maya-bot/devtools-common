@@ -48,4 +48,5 @@ Git 依存の代わりにそれを使います（GitHub の認証なしでセッ
 ./setup.sh --dev          # Windows: .\scripts\setup.ps1 -Dev
 ruff check . && ruff format --check .
 pytest            # または python -m unittest discover -s tests
+python scripts/verify_gates.py   # CI と同じゲートを同じ順で（push 前に）
 ```

@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "devtools-common"
 version = "0.2.0"
 description = "開発支援ツール群の共有ライブラリ（CLI 規約・ログ・一時ファイル・HTTP・レポート）"
+license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0"]

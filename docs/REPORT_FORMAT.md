@@ -94,7 +94,7 @@ devtools 系のすべてのツール（`doc2md` / `fieldcheck` / テンプレー
 | ツール | 仕様 |
 |---|---|
 | doc2md | [doc-to-markdown/docs/OUTPUT_SPEC.md](https://github.com/shoyo-maya-bot/doc-to-markdown/blob/main/docs/OUTPUT_SPEC.md) |
-| fieldcheck | [field-validation/docs/OUTPUT_SPEC.md](https://github.com/shoyo-maya-bot/field-validation/blob/main/docs/OUTPUT_SPEC.md) |
+| fieldcheck | [office-review/fieldcheck/OUTPUT_SPEC.md](https://github.com/shoyo-maya-bot/office-review/blob/main/fieldcheck/OUTPUT_SPEC.md) |
 
 ## 6. 互換性ポリシー
 

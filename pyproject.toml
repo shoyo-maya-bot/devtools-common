@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "devtools-common"
-version = "0.2.0"
+version = "0.3.0"
 description = "開発支援ツール群の共有ライブラリ（CLI 規約・ログ・一時ファイル・HTTP・レポート）"
 license = "MIT"
 readme = "README.md"

@@ -26,8 +26,8 @@
 - 逆に `idempotent=False` を渡すと、GET でも届いた可能性があるときは再試行しない。
 
 ```python
-client.post("chat.postMessage", json_body=msg)                      # 5xx でも再送しない（二重投稿を防ぐ）
-client.post("search", json_body=q, idempotent=True)                 # 副作用のない POST は再試行してよい
+client.post("chat.postMessage", json_body=msg)  # 5xx でも再送しない（二重投稿を防ぐ）
+client.post("search", json_body=q, idempotent=True)  # 副作用のない POST は再試行してよい
 client.post("issues", json_body=issue, headers={"Idempotency-Key": key})  # API が対応していれば再試行してよい
 ```
 

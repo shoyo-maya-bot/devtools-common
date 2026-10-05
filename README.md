@@ -66,3 +66,8 @@ ruff check . && ruff format --check .
 pytest            # または python -m unittest discover -s tests
 python scripts/verify_gates.py   # CI と同じゲートを同じ順で（push 前に）
 ```
+
+## セキュリティ・ライセンス
+
+- 脆弱性を見つけたら、公開の Issue ではなく [SECURITY.md](SECURITY.md) の方法で知らせてください
+- ライセンスは [MIT](LICENSE) です

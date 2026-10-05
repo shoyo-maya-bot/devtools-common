@@ -2,12 +2,16 @@
 
 - レート制限: トークンバケットで 1 秒あたりのリクエスト数を制御
 - リトライ: 429 / 5xx / ネットワークエラーを指数バックオフで再試行（Retry-After を優先）
+  - 冪等なメソッド（GET / HEAD / PUT / DELETE / OPTIONS / TRACE）だけを再試行する
+  - POST / PATCH は二重登録を防ぐため、サーバーに届いていないことが確実なとき（接続拒否・名前解決の失敗）と
+    Retry-After 付きの 429 のときだけ再試行する。`idempotent=True` か Idempotency-Key ヘッダーで常に再試行できる
 - エラーハンドリング: 最終的に失敗したら HttpError を送出（本文はログに出さない）
 """
 
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 import urllib.error
@@ -22,6 +26,11 @@ from .log import get_logger
 log = get_logger(__name__)
 
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "TRACE"})
+IDEMPOTENCY_KEY_HEADER = "idempotency-key"
+
+# 送信前に失敗したことが確実なエラー（URLError.reason）。これらはサーバーに届いていない
+_NOT_SENT_ERRORS: tuple[type[BaseException], ...] = (ConnectionRefusedError, socket.gaierror)
 
 
 class HttpError(Exception):
@@ -107,7 +116,13 @@ class HttpClient:
         params: Mapping[str, Any] | None = None,
         json_body: Any = None,
         headers: Mapping[str, str] | None = None,
+        idempotent: bool | None = None,
     ) -> Response:
+        """リクエストを送る.
+
+        idempotent: None（既定）はメソッドから判断する（GET / PUT / DELETE 等は冪等、POST / PATCH は非冪等）。
+        Idempotency-Key ヘッダーがあれば冪等とみなす。True で常に再試行、False で届いた可能性があれば再試行しない。
+        """
         url = urllib.parse.urljoin(self.base_url.rstrip("/") + "/", path.lstrip("/"))
         if params:
             url += "?" + urllib.parse.urlencode(params, doseq=True)
@@ -116,27 +131,47 @@ class HttpClient:
         if json_body is not None:
             data = json.dumps(json_body).encode("utf-8")
             merged.setdefault("Content-Type", "application/json")
+        method = method.upper()
+        if idempotent is None:
+            idempotent = method in IDEMPOTENT_METHODS or any(k.lower() == IDEMPOTENCY_KEY_HEADER for k in merged)
 
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             self._limiter.acquire()
-            req = urllib.request.Request(url, data=data, method=method.upper(), headers=merged)
+            req = urllib.request.Request(url, data=data, method=method, headers=merged)
             try:
                 with self.opener(req, timeout=self.timeout) as resp:
                     return Response(resp.status, dict(resp.headers), resp.read())
             except urllib.error.HTTPError as e:
                 last_error = HttpError(e.code, e.reason or "")
-                if e.code not in RETRY_STATUSES or attempt == self.max_retries:
+                retry_after = e.headers.get("Retry-After") if e.headers else None
+                # 429 + Retry-After は「処理せずに断った」という意味なので非冪等でも再試行してよい
+                retryable = e.code in RETRY_STATUSES and (idempotent or (e.code == 429 and bool(retry_after)))
+                if not retryable or attempt == self.max_retries:
+                    self._log_not_retried(method, path, idempotent, e.code in RETRY_STATUSES)
                     raise last_error from e
-                delay = self._backoff(attempt, e.headers.get("Retry-After") if e.headers else None)
+                delay = self._backoff(attempt, retry_after)
             except (urllib.error.URLError, TimeoutError) as e:
-                last_error = HttpError(None, f"network error: {getattr(e, 'reason', e)}")
-                if attempt == self.max_retries:
+                reason = getattr(e, "reason", e)
+                last_error = HttpError(None, f"network error: {reason}")
+                # URLError でも送信中のタイムアウト等は届いた可能性がある。読み取りタイムアウト（TimeoutError）も同じ
+                not_sent = isinstance(e, urllib.error.URLError) and isinstance(reason, _NOT_SENT_ERRORS)
+                if not (idempotent or not_sent) or attempt == self.max_retries:
+                    self._log_not_retried(method, path, idempotent, True)
                     raise last_error from e
                 delay = self._backoff(attempt, None)
-            log.info("retrying %s %s (attempt %d) in %.1fs", method.upper(), path, attempt + 1, delay)
+            log.info("retrying %s %s (attempt %d) in %.1fs", method, path, attempt + 1, delay)
             self.sleep(delay)
         raise last_error or HttpError(None, "request failed")  # pragma: no cover
+
+    @staticmethod
+    def _log_not_retried(method: str, path: str, idempotent: bool, transient: bool) -> None:
+        if transient and not idempotent:
+            log.warning(
+                "not retrying %s %s: the server may have received it (pass idempotent=True or an Idempotency-Key)",
+                method,
+                path,
+            )
 
     def get(self, path: str, **kw: Any) -> Response:
         return self.request("GET", path, **kw)

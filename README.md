@@ -15,6 +15,22 @@
 | `devtools_common.report` | `Finding`（指摘）と Markdown / HTML / CSV / JSON レポート出力。JSON は `schema_version` 付きで、`report_schema()` が JSON Schema を返す |
 | `devtools_common.executables` | 外部ソフト（LibreOffice / Tesseract / draw.io）の探索: 環境変数 `DEVTOOLS_<名前>` → PATH → OS ごとの標準インストール先（Windows の Program Files 等） |
 
+### HTTP のリトライと二重送信
+
+`HttpClient` は 429 / 5xx / ネットワークエラーを再試行します。ただし二重登録を防ぐため、再試行するのは次のときだけです。
+
+- GET / HEAD / PUT / DELETE / OPTIONS は、上のエラーでいつでも再試行する。
+- POST / PATCH は、サーバーに届いていないことが確実なとき（接続拒否・名前解決の失敗）と、
+  `Retry-After` 付きの 429 のときだけ再試行する。5xx や読み取りタイムアウトでは再試行しない。
+- 何度送っても結果が同じ POST は `idempotent=True` を渡すか、`Idempotency-Key` ヘッダーを付ける。いつでも再試行する。
+- 逆に `idempotent=False` を渡すと、GET でも届いた可能性があるときは再試行しない。
+
+```python
+client.post("chat.postMessage", json_body=msg)                      # 5xx でも再送しない（二重投稿を防ぐ）
+client.post("search", json_body=q, idempotent=True)                 # 副作用のない POST は再試行してよい
+client.post("issues", json_body=issue, headers={"Idempotency-Key": key})  # API が対応していれば再試行してよい
+```
+
 **レポートの形式は全ツール共通の約束です**: [docs/REPORT_FORMAT.md](docs/REPORT_FORMAT.md)（JSON Schema:
 `src/devtools_common/schemas/report.schema.json`）。互換性のない変更は schema_version のメジャーを上げます。
 

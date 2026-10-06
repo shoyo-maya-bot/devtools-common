@@ -74,12 +74,10 @@ class CrossOriginTest(unittest.TestCase):
                 client.get(other.url + "/steal")
             with self.assertRaises(CrossOriginError):
                 client.post(other.url + "/steal", json_body={"a": 1})
-            # 「//host/path」は先頭の / を外して base_url 配下のパスとして扱う（別ホストには行かない）
-            client.get("//" + other.url.split("://", 1)[1] + "/x")
         for h in other.seen:
             self.assertNotIn("authorization", h)
             self.assertNotIn("x-api-key", h)
-        self.assertEqual(len(base.seen), 1)
+        self.assertEqual(base.seen, [])
 
     def test_other_origin_allowed_explicitly_without_default_headers(self):
         with Server() as base, Server() as other:

@@ -177,7 +177,7 @@ class HttpClient:
         既定のヘッダー（self.headers）は付けない（呼び出しごとの headers は付ける）。
         """
         base = self.base_url.rstrip("/") + "/"
-        url = urllib.parse.urljoin(base, path.lstrip("/"))  # 「//x」は先頭の / を外すので base_url 配下のパスになる
+        url = urllib.parse.urljoin(base, path.lstrip("/"))
         same_origin = _origin(url) == _origin(base)
         if not same_origin and not allow_other_origin:
             raise CrossOriginError(

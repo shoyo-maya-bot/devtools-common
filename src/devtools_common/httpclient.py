@@ -6,6 +6,10 @@
   - POST / PATCH は二重登録を防ぐため、サーバーに届いていないことが確実なとき（接続拒否・名前解決の失敗）と
     Retry-After 付きの 429 のときだけ再試行する。`idempotent=True` か Idempotency-Key ヘッダーで常に再試行できる
 - エラーハンドリング: 最終的に失敗したら HttpError を送出（本文はログに出さない）
+- 送り先の制限: path に絶対 URL を渡しても、base_url と別のオリジン（スキーム・ホスト・ポート）には送らない
+  （CrossOriginError）。認証ヘッダーが別のホストへ漏れるのを防ぐ。別のオリジンへ送るときは `allow_other_origin=True` を
+  明示し、そのときは `headers`（既定のヘッダー）を付けない。
+  別のオリジンへのリダイレクトでも、既定のヘッダーと認証ヘッダーを外す
 """
 
 from __future__ import annotations
@@ -33,10 +37,56 @@ IDEMPOTENCY_KEY_HEADER = "idempotency-key"
 _NOT_SENT_ERRORS: tuple[type[BaseException], ...] = (ConnectionRefusedError, socket.gaierror)
 
 
+# 別のオリジンへのリダイレクトで必ず外すヘッダー（小文字）
+_AUTH_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "x-api-key"})
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
 class HttpError(Exception):
     def __init__(self, status: int | None, message: str):
         super().__init__(f"HTTP {status}: {message}" if status else message)
         self.status = status
+
+
+class CrossOriginError(ValueError):
+    """base_url と別のオリジンへ送ろうとした（既定のヘッダーに認証情報が入っていることがあるため送らない）."""
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """(スキーム, ホスト, ポート). 既定のポート（http 80 / https 443）は省略時と同じに扱う."""
+    p = urllib.parse.urlsplit(url)
+    scheme = p.scheme.lower()
+    try:
+        port = p.port
+    except ValueError:
+        port = None
+    return scheme, (p.hostname or "").lower(), port or _DEFAULT_PORTS.get(scheme)
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """別のオリジンへのリダイレクトでは、既定のヘッダーと認証ヘッダーを外してから辿る."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and _origin(newurl) != _origin(req.full_url):
+            strip = _AUTH_HEADERS | getattr(req, "_devtools_default_headers", frozenset())
+            for k in list(new.headers):
+                if k.lower() in strip:
+                    del new.headers[k]
+            for k in list(new.unredirected_hdrs):
+                if k.lower() in strip:
+                    del new.unredirected_hdrs[k]
+        elif new is not None:
+            new._devtools_default_headers = getattr(req, "_devtools_default_headers", frozenset())  # type: ignore[attr-defined]
+        return new
+
+
+_SAFE_OPENER = urllib.request.build_opener(_SafeRedirectHandler)
+
+
+def safe_urlopen(req: urllib.request.Request, timeout: float) -> Any:
+    """urllib.request.urlopen と同じ. ただし別のオリジンへのリダイレクトで認証ヘッダーを外す."""
+    return _SAFE_OPENER.open(req, timeout=timeout)
 
 
 @dataclass
@@ -94,7 +144,7 @@ class HttpClient:
     backoff_base: float = 0.5
     backoff_max: float = 30.0
     timeout: float = 30.0
-    opener: Callable[..., Any] = urllib.request.urlopen
+    opener: Callable[..., Any] = safe_urlopen
     sleep: Callable[[float], None] = time.sleep
 
     def __post_init__(self) -> None:
@@ -117,17 +167,28 @@ class HttpClient:
         json_body: Any = None,
         headers: Mapping[str, str] | None = None,
         idempotent: bool | None = None,
+        allow_other_origin: bool = False,
     ) -> Response:
         """リクエストを送る.
 
         idempotent: None（既定）はメソッドから判断する（GET / PUT / DELETE 等は冪等、POST / PATCH は非冪等）。
         Idempotency-Key ヘッダーがあれば冪等とみなす。True で常に再試行、False で届いた可能性があれば再試行しない。
+        path に base_url と別のオリジンの絶対 URL を渡すと CrossOriginError。allow_other_origin=True なら送るが、
+        既定のヘッダー（self.headers）は付けない（呼び出しごとの headers は付ける）。
         """
-        url = urllib.parse.urljoin(self.base_url.rstrip("/") + "/", path.lstrip("/"))
+        base = self.base_url.rstrip("/") + "/"
+        url = urllib.parse.urljoin(base, path.lstrip("/"))  # 「//x」は先頭の / を外すので base_url 配下のパスになる
+        same_origin = _origin(url) == _origin(base)
+        if not same_origin and not allow_other_origin:
+            raise CrossOriginError(
+                f"refusing to send to another origin than base_url: {_origin(url)[1]} "
+                "(pass allow_other_origin=True to send without the default headers)"
+            )
         if params:
             url += "?" + urllib.parse.urlencode(params, doseq=True)
         data = None
-        merged = {"Accept": "application/json", **self.headers, **(headers or {})}
+        defaults = self.headers if same_origin else {}
+        merged = {"Accept": "application/json", **defaults, **(headers or {})}
         if json_body is not None:
             data = json.dumps(json_body).encode("utf-8")
             merged.setdefault("Content-Type", "application/json")
@@ -139,6 +200,7 @@ class HttpClient:
         for attempt in range(self.max_retries + 1):
             self._limiter.acquire()
             req = urllib.request.Request(url, data=data, method=method, headers=merged)
+            req._devtools_default_headers = frozenset(k.lower() for k in defaults)  # type: ignore[attr-defined]
             try:
                 with self.opener(req, timeout=self.timeout) as resp:
                     return Response(resp.status, dict(resp.headers), resp.read())

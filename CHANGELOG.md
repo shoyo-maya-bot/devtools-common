@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- `llm`: Anthropic Messages API 互換エンドポイントの共通クライアント（標準ライブラリのみ）。
+  `LLMClient`（`complete` / `complete_json`）、`retry-after` を優先した再試行（ゆらぎ・上限付き）、`cache_control` 付きシステムプロンプト、
+  `MaxTokensError`、`Usage` と呼び出しごとのログ、料金表と `estimate_cost`、`Masker`（メールアドレス・電話番号・任意のパターン）、
+  テスト用の `FakeLLM`（記録した JSONL の再生）
+- `httpclient`: `request()` に `allow_other_origin` 引数、`CrossOriginError`、`safe_urlopen`
+
+### Security
+
+- `httpclient`: `path` に絶対 URL を渡すと、`headers` の認証情報を `base_url` と別のホストへ送っていた。
+  別のオリジン（スキーム・ホスト・ポート）へは `CrossOriginError` で送らないようにした。同じホストの絶対 URL はこれまでどおり送れる。
+  別のオリジンへ送るときは `allow_other_origin=True` を明示し、既定のヘッダーは付けない
+- `httpclient`: 別のオリジンへのリダイレクトでも認証ヘッダーを引き継いでいた。既定のヘッダーと `Authorization` / `Cookie` /
+  `X-Api-Key` 等を外してから辿るようにした（既定の `opener` を `safe_urlopen` に変更）
+
 ## [0.3.0] - 2026-10-05
 
 ### Added

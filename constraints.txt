@@ -4,6 +4,8 @@ attrs==26.1.0
     #   referencing
 et-xmlfile==2.0.0
     # via openpyxl
+exceptiongroup==1.3.1
+    # via pytest
 iniconfig==2.3.1
     # via pytest
 jsonschema==4.26.0
@@ -26,11 +28,15 @@ referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
-rpds-py==2026.9.1
+rpds-py==0.30.0
     # via
     #   jsonschema
     #   referencing
 ruff==0.16.10
     # via devtools-common (pyproject.toml)
+tomli==2.4.1
+    # via pytest
 typing-extensions==4.16.0
-    # via referencing
+    # via
+    #   exceptiongroup
+    #   referencing

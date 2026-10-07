@@ -1,0 +1,59 @@
+# 依存の版を constraints.txt に固定する（pyproject.toml の依存と extra の dev・excel から作る）
+#
+# この環境から PyPI に届かないことがあるため、GitHub Actions に作らせる。
+# main 以外のブランチで pyproject.toml（かこのファイル）を変えて push すると、constraints.txt を作り直し、
+# 変わっていれば同じブランチにコミットして push する。手で動かすときは Actions の画面から workflow_dispatch。
+# 注意: GITHUB_TOKEN で push したコミットでは CI が走らない。そのあとに自分の変更を push して、最後の head で CI を走らせる。
+# CI（python-ci.yml）は constraints.txt があれば `pip install -c constraints.txt` で使う。Dependabot（pip）も更新する。
+name: deps-lock
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+    paths:
+      - pyproject.toml
+      - .github/workflows/deps-lock.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deps-lock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # constraints.txt をブランチにコミットして push するため、このジョブだけ書き込みの権限が要る
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 下の git push に GITHUB_TOKEN を使うため、このジョブだけ認証情報を残す（ほかのワークフローは false）
+          persist-credentials: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install "pip-tools==7.5.0"
+      - name: Compile constraints.txt
+        run: |
+          pip-compile --quiet --strip-extras --no-header --allow-unsafe \
+            --extra dev --extra excel \
+            --output-file constraints.txt pyproject.toml
+          # 自分自身（devtools-common）は constraints に入れない
+          sed -i '/^devtools-common\b/d' constraints.txt
+          cat constraints.txt
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- constraints.txt && git ls-files --error-unmatch constraints.txt >/dev/null 2>&1; then
+            echo "constraints.txt は変わっていません"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add constraints.txt
+          git commit -m "deps: constraints.txt を pyproject.toml から作り直す（deps-lock）"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

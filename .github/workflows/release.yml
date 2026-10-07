@@ -9,5 +9,5 @@ permissions:
 
 jobs:
   release:
-    uses: shoyo-maya-bot/devtools-workspace/.github/workflows/python-release.yml@fdfade379dbb65ca8f5240a95a340514ae4595e9  # devtools-workspace の共通 CI（SHA 固定）
+    uses: shoyo-maya-bot/devtools-workspace/.github/workflows/python-release.yml@d3f4335f4e96328504b33ad5327320719c3afb7f  # devtools-workspace の共通 CI（SHA 固定）
     secrets: inherit

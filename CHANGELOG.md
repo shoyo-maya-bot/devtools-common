@@ -6,6 +6,11 @@
 
 ### Added
 
+- `excel`: Excel の読み取りの共通部品（extra `excel` で openpyxl を入れる）。doc-to-markdown と design-diff に重複していた処理をここへ移した。
+  `render_value` / `render_cell`（表示形式どおりの文字列。doc-to-markdown の xlsx_numfmt から移動）、`MergeMap`（結合セルの索引）、
+  `header_depth` / `header_names`（複数段の見出しの判定と「親/子」の列名。`header_rows` で段数を指定可）、`looks_numeric`、
+  `load_workbook_with_formula_fallback`（計算結果の無い数式セルを数式の文字列で補う。design-diff から移動）
+- `scripts/install_deps.py`: 隣の devtools-common を使うとき、`devtools-common[excel]` のような extra も引き継ぐ
 - `llm`: Anthropic Messages API 互換エンドポイントの共通クライアント（標準ライブラリのみ）。
   `LLMClient`（`complete` / `complete_json`）、`retry-after` を優先した再試行（ゆらぎ・上限付き）、`cache_control` 付きシステムプロンプト、
   `MaxTokensError`、`Usage` と呼び出しごとのログ、料金表と `estimate_cost`、`Masker`（メールアドレス・電話番号・任意のパターン）、

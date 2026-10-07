@@ -15,6 +15,7 @@
 | `devtools_common.report` | `Finding`（指摘）と Markdown / HTML / CSV / JSON レポート出力。JSON は `schema_version` 付きで、`report_schema()` が JSON Schema を返す |
 | `devtools_common.executables` | 外部ソフト（LibreOffice / Tesseract / draw.io）の探索: 環境変数 `DEVTOOLS_<名前>` → PATH → OS ごとの標準インストール先（Windows の Program Files 等） |
 | `devtools_common.llm` | LLM（Anthropic Messages API 互換）の小さなクライアント（標準ライブラリのみ）：再試行・プロンプトキャッシュ・構造化出力・費用の見積もり・伏せ字・テスト用の `FakeLLM` |
+| `devtools_common.excel` | Excel の読み取りの共通部品：表示形式どおりの値（`render_value`、和暦・ゼロ埋め・桁区切り等）、結合セルの索引（`MergeMap`）、複数段の見出しの判定（`header_depth` / `header_names`）、計算結果の無い数式セルを数式の文字列で補う読み込み（`load_workbook_with_formula_fallback`）。openpyxl が必要（extra `excel`） |
 
 ### HTTP のリトライと二重送信
 
@@ -97,6 +98,44 @@ label = client.complete_json("次の指摘を分類してください: ...", sch
 
 **レポートの形式は全ツール共通の約束です**: [docs/REPORT_FORMAT.md](docs/REPORT_FORMAT.md)（JSON Schema:
 `src/devtools_common/schemas/report.schema.json`）。互換性のない変更は schema_version のメジャーを上げます。
+
+## Excel の読み取り（`devtools_common.excel`）
+
+doc-to-markdown（Excel → Markdown）と design-diff（Excel 設計書の差分）が同じ規則でセルを読むための部品です。
+openpyxl は extra で入れます（`render_value` と見出しの判定は標準ライブラリだけで動きます）。
+
+```toml
+dependencies = [
+  "devtools-common[excel] @ git+https://github.com/shoyo-maya-bot/devtools-common.git@<コミット SHA>",
+]
+```
+
+```python
+from devtools_common.excel import MergeMap, header_depth, header_names, load_workbook_with_formula_fallback, render_cell
+
+wb, missing = load_workbook_with_formula_fallback("設計書.xlsx")  # missing: 計算結果が無く数式の文字列を入れたセル
+ws = wb.active
+merges = MergeMap.from_worksheet(ws)
+
+
+def own(r, c):  # 結合の左上以外は空
+    return "" if merges.is_covered(r, c) else render_cell(ws.cell(r, c))[0]
+
+
+def filled(r, c):  # 結合の左上の値で埋める
+    return render_cell(ws.cell(*merges.anchor(r, c)))[0]
+
+
+depth = header_depth(merges, own, 1, first_col=1, last_col=ws.max_column, last_row=ws.max_row)
+names = header_names(filled, 1, depth, range(1, ws.max_column + 1))  # 例: ["項目名", "型情報/型", "型情報/桁"]
+```
+
+| 関数 | 決まりごと |
+|---|---|
+| `render_value(値, 表示形式)` | `(文字列, 再現できたか)`。`000` → `001`、`#,##0` → `1,500`、`0.0%`、`"¥"#,##0`、`yyyy/mm/dd`、`ggge"年"`（和暦）等。指数・分数・条件付き等は書式なしの値と `False` |
+| `header_depth` | 見出し行から始まる結合が下の行まで続き、その行が文字だけなら次の行も見出し。横に結合した見出しの下の各列がすべて文字なら次の行も見出し。最大 3 段。`header_rows=` で段数を指定 |
+| `header_names` | 上の段から `/` でつなぐ（`金額/税抜`）。縦結合で同じ値が続く段は 1 つ |
+| `load_workbook_with_formula_fallback` | 計算結果（data_only）で読む。計算結果の無い数式セル（openpyxl で作ったブック等）には数式の文字列を入れ、そのセルの一覧を返す |
 
 ## 取り込み方（ツール側の `pyproject.toml`）
 

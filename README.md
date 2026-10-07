@@ -169,7 +169,7 @@ Git 依存の代わりにそれを使います（GitHub の認証なしでセッ
 ```bash
 ./setup.sh --dev          # Windows: .\scripts\setup.ps1 -Dev
 ruff check . && ruff format --check .
-pip install -e ".[dev]" -c constraints.txt   # CI と同じ版で入れる（constraints.txt は deps-lock.yml が作る）
+pip install -e ".[dev]" -c constraints.txt   # CI と同じ版で入れる（constraints.txt は deps-lock.yml が Python 3.10 で作る）
 pytest            # または python -m unittest discover -s tests
 python scripts/verify_gates.py   # CI と同じゲートを同じ順で（push 前に）
 ```

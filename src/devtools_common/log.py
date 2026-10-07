@@ -33,10 +33,21 @@ def describe_text(text: str) -> str:
 
 
 class RedactFilter(logging.Filter):
+    """メッセージを引数ごと整形してから伏せ字にする.
+
+    `%d`・`%.1f`・dict 引数の書式を保つため、先に `record.getMessage()` で整形し、
+    結果を `msg` に入れて `args` を空にする
+    （引数を文字列に変えてから整形すると `%d` が TypeError になり、ログが消える）。
+    書式と引数が合わないときは、ログを消さずに書式と引数をそのまま並べて残す。
+    """
+
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = redact(str(record.msg))
-        if record.args:
-            record.args = tuple(redact(str(a)) for a in record.args) if isinstance(record.args, tuple) else record.args
+        try:
+            text = record.getMessage()
+        except (TypeError, ValueError, KeyError):
+            text = f"{record.msg} (log args did not match the format: {record.args!r})"
+        record.msg = redact(text)
+        record.args = ()
         return True
 
 

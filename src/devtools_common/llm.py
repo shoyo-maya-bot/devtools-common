@@ -13,6 +13,8 @@
 - 呼び出しごとに 1 行のログ（モデル・トークン数・所要時間・request-id・費用の見積もり）を出す。本文はログに出さない
 - `Masker`: 送る前にメールアドレス・電話番号（全角・区切りなし・+81 を含む）と任意のパターンを伏せる
 - `FakeLLM`: 記録した応答（JSONL）を順に返す、テスト用のクライアント（通信しない）
+- `record_path`: 応答を JSONL に記録する。本文がファイルに残るので注意。
+  `record_content` で伏せる（masker があれば既定で伏せる）・省く（"omit"）を選べる
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from .httpclient import safe_urlopen
-from .log import get_logger
+from .log import describe_text, get_logger
 
 log = get_logger(__name__)
 
@@ -51,6 +53,7 @@ __all__ = [
     "MaxTokensError",
     "PRICES",
     "Price",
+    "RECORD_CONTENT_MODES",
     "SchemaValidationError",
     "Usage",
     "cached_text",
@@ -58,6 +61,23 @@ __all__ = [
     "price_for",
     "validate",
 ]
+
+
+# record_path に書く本文の扱い（LLMClient の record_content）
+RECORD_CONTENT_MODES = ("auto", "raw", "masked", "omit")
+# content ブロックのうち本文ではないキー（伏せない・省かない）
+_RECORD_META_KEYS = frozenset({"type", "id", "name", "tool_use_id", "cache_control", "signature"})
+
+
+def _mask_deep(value: Any, masker: Masker) -> Any:
+    """入れ子の dict / list の中の文字列をすべて伏せる（キーはそのまま）."""
+    if isinstance(value, str):
+        return masker.text(value)
+    if isinstance(value, dict):
+        return {k: _mask_deep(v, masker) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_deep(v, masker) for v in value]
+    return value
 
 
 # ---------------------------------------------------------------- 例外
@@ -378,6 +398,7 @@ class LLMClient:
         backoff_base: float = 1.0,
         backoff_max: float = 60.0,
         record_path: str | Path | None = None,
+        record_content: str = "auto",
         extra_headers: Mapping[str, str] | None = None,
         opener: Callable[..., Any] = safe_urlopen,
         sleep: Callable[[float], None] = time.sleep,
@@ -388,6 +409,14 @@ class LLMClient:
         cache_system=True で cache_control を付ける。
         masker: 指定すると、送る前に system と messages の text を伏せる。
         record_path: 指定すると、受け取った応答を JSONL に追記する（FakeLLM.from_jsonl で再生できる）。
+            **注意**: 応答の本文（モデルが返した文章・構造化出力）がファイルに残る。
+            業務の文書を扱うときは置き場所に気をつけ、コミットしない。
+        record_content: record_path に書く本文の扱い。
+            "auto"（既定）: masker があれば "masked"、無ければ "raw"。
+            "masked": 本文（text・tool_use の input の文字列など）を masker で伏せてから書く（masker が要る）。
+            "omit": 本文を書かない（text は `<text N chars>`、tool_use の input は {}）。
+                トークン数などのメタ情報だけ残る。
+            "raw": 受け取ったまま書く。
         """
         self.model = model
         self.api_key = api_key if api_key is not None else os.environ.get("ANTHROPIC_API_KEY")
@@ -398,8 +427,41 @@ class LLMClient:
         self.timeout, self.max_retries = timeout, max_retries
         self.backoff_base, self.backoff_max = backoff_base, backoff_max
         self.record_path = Path(record_path) if record_path else None
+        if record_content not in RECORD_CONTENT_MODES:
+            raise ValueError(f"record_content must be one of {RECORD_CONTENT_MODES}: {record_content!r}")
+        if record_content == "masked" and masker is None:
+            raise ValueError('record_content="masked" needs a masker')
+        if record_content == "auto":
+            record_content = "masked" if masker is not None else "raw"
+        self.record_content = record_content
         self.extra_headers = dict(extra_headers or {})
         self._opener, self._sleep = opener, sleep
+
+    # ---- 応答の記録
+
+    def _record_view(self, data: Mapping[str, Any]) -> Any:
+        """record_path に書く形. record_content に従って content の本文を伏せる・省く（data 自体は変えない）."""
+        if self.record_content == "raw" or not isinstance(data.get("content"), list):
+            return data
+        return {**data, "content": [self._record_block(b) for b in data["content"]]}
+
+    def _record_block(self, block: Any) -> Any:
+        if not isinstance(block, dict):
+            return block
+        if self.record_content == "omit":
+            out = dict(block)
+            for k, v in block.items():
+                if k in _RECORD_META_KEYS:
+                    continue
+                if isinstance(v, str):
+                    out[k] = describe_text(v)
+                elif isinstance(v, dict):
+                    out[k] = {}
+                elif isinstance(v, list):
+                    out[k] = []
+            return out
+        assert self.masker is not None  # "masked" のときは __init__ で確かめている
+        return {k: v if k in _RECORD_META_KEYS else _mask_deep(v, self.masker) for k, v in block.items()}
 
     # ---- 公開 API
 
@@ -426,7 +488,7 @@ class LLMClient:
         data = json.loads(reply.body.decode("utf-8"))
         if self.record_path:
             with self.record_path.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(data, ensure_ascii=False) + "\n")
+                fh.write(json.dumps(self._record_view(data), ensure_ascii=False) + "\n")
         model = str(data.get("model") or body["model"])
         usage = Usage.from_api(data.get("usage"))
         content = list(data.get("content") or [])

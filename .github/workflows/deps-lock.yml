@@ -37,12 +37,23 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: pip install "pip-tools==7.5.0"
+      # pip-tools は pip の内部を使うので、組み合わせが動くことを確かめた pip の版も固定する
+      - run: python -m pip install "pip==25.1.1" "pip-tools==7.5.0"
       - name: Compile constraints.txt
         run: |
-          pip-compile --quiet --strip-extras --no-header --allow-unsafe \
+          set +e
+          pip-compile --strip-extras --no-header --allow-unsafe \
             --extra dev --extra excel \
-            --output-file constraints.txt pyproject.toml
+            --output-file constraints.txt pyproject.toml > compile.log 2>&1
+          rc=$?
+          set -e
+          cat compile.log
+          if [ "$rc" -ne 0 ]; then
+            # 失敗の理由を注釈（annotations）にも出す（ログを開かなくても読めるように）
+            tail -n 15 compile.log | while IFS= read -r line; do echo "::error::${line}"; done
+            exit "$rc"
+          fi
+          rm -f compile.log
           # 自分自身（devtools-common）は constraints に入れない
           sed -i '/^devtools-common\b/d' constraints.txt
           cat constraints.txt

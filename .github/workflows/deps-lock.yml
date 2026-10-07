@@ -34,9 +34,11 @@ jobs:
         with:
           # 下の git push に GITHUB_TOKEN を使うため、このジョブだけ認証情報を残す（ほかのワークフローは false）
           persist-credentials: true
+      # pyproject.toml の requires-python の下限（3.10）で解決する。3.12 で解決すると 3.10 を落とした版が選ばれ、
+      # CI の 3.10 のテストで入れられなくなる（3.10 で選んだ版は 3.12・Windows でも入る）
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.10"
       # pip-tools は pip の内部を使うので、組み合わせが動くことを確かめた pip の版も固定する
       - run: python -m pip install "pip==25.1.1" "pip-tools==7.5.0"
       - name: Compile constraints.txt

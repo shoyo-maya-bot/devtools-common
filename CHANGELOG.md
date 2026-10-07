@@ -19,6 +19,7 @@
 - `report.neutralize_formula(value)`: CSV・Excel に書くセルの値を、数式として実行されない形にする（`=` `+` `-` `@` タブ・CR で始まれば先頭に `'`）
 - `llm.LLMClient`: `record_content` 引数（`"auto"` / `"masked"` / `"omit"` / `"raw"`）。`record_path` に書く本文を伏せる・省く
 - CI: Windows（windows-latest）でもテストを流す。`constraints.txt`（`.github/workflows/deps-lock.yml` が作る）で CI の依存の版を固定
+- CI: `ci.yml`・`release.yml` で `secrets: inherit` をやめた（非公開の依存が無いので、共通ワークフローにシークレットを渡さない）
 
 ### Changed
 

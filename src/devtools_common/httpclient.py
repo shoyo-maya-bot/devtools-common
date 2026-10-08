@@ -1,7 +1,8 @@
 """外部 API 連携の共通クライアント（標準ライブラリのみ）.
 
 - レート制限: トークンバケットで 1 秒あたりのリクエスト数を制御
-- リトライ: 429 / 5xx / ネットワークエラーを指数バックオフで再試行（Retry-After を優先）
+- リトライ: 429 / 5xx / ネットワークエラー（応答の受信中の切断・本文の途中切れを含む）を指数バックオフで再試行
+  （使える Retry-After を優先。待ち時間の計算は `retry_delay` の 1 か所で、llm.py も使う）
   - 冪等なメソッド（GET / HEAD / PUT / DELETE / OPTIONS / TRACE）だけを再試行する
   - POST / PATCH は二重登録を防ぐため、サーバーに届いていないことが確実なとき（接続拒否・名前解決の失敗）と
     Retry-After 付きの 429 のときだけ再試行する。`idempotent=True` か Idempotency-Key ヘッダーで常に再試行できる
@@ -14,8 +15,11 @@
 
 from __future__ import annotations
 
+import email.utils
+import http.client
 import json
 import math
+import random
 import socket
 import threading
 import time
@@ -36,6 +40,71 @@ IDEMPOTENCY_KEY_HEADER = "idempotency-key"
 
 # 送信前に失敗したことが確実なエラー（URLError.reason）。これらはサーバーに届いていない
 _NOT_SENT_ERRORS: tuple[type[BaseException], ...] = (ConnectionRefusedError, socket.gaierror)
+
+
+# 送信後に起きうる通信の失敗（応答の受信中の切断・本文の途中切れ）. サーバーに届いた可能性がある.
+# urllib は応答を読む段階のこれらを URLError に包まずにそのまま送出する
+_TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
+    http.client.RemoteDisconnected,
+    http.client.IncompleteRead,
+    ConnectionResetError,
+)
+
+
+def parse_retry_after(value: str | None, *, now: Callable[[], float] = time.time) -> float | None:
+    """Retry-After ヘッダーを秒数にする. 使えない値（空・数値でも日付でもない・nan・inf・負）は None.
+
+    秒数（`Retry-After: 2`）と HTTP の日付（`Retry-After: Wed, 21 Oct 2026 07:28:00 GMT`）の両方を読む。
+    日付が過去なら 0。
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        seconds = float(text)
+    except ValueError:
+        try:
+            when = email.utils.parsedate_to_datetime(text)
+        except (TypeError, ValueError, IndexError, OverflowError):
+            return None
+        if when is None or when.tzinfo is None:
+            return None
+        return max(when.timestamp() - now(), 0.0)
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return seconds
+
+
+def retry_delay(
+    attempt: int,
+    retry_after: str | None,
+    *,
+    base: float,
+    cap: float,
+    jitter: bool = False,
+    uniform: Callable[[float, float], float] = random.uniform,
+) -> float:
+    """再試行までの待ち時間（秒）. HttpClient と LLMClient の共通の計算.
+
+    - Retry-After が使える値（有限で 0 以上の秒数か、HTTP の日付）ならそれを優先し、cap で丸める
+    - 使えない値（不正な文字列・nan・inf・負）や無いときは指数バックオフ base * 2**attempt（cap で丸める）
+    - jitter=True: Retry-After のときは 0〜base/2 を足し、指数バックオフは [d/2, d] の範囲でゆらす
+    戻り値は必ず 0 以上の有限の値（time.sleep が ValueError・OverflowError にならない）。
+    """
+    cap = cap if math.isfinite(cap) and cap >= 0 else 0.0
+    base = base if math.isfinite(base) and base >= 0 else 0.0
+    seconds = parse_retry_after(retry_after)
+    if seconds is not None:
+        d = min(seconds, cap)
+        if jitter:
+            d += uniform(0, base / 2)
+    else:
+        d = min(base * (2.0 ** min(max(attempt, 0), 62)), cap)
+        if jitter:
+            d = d / 2 + uniform(0, d / 2)
+    return d if math.isfinite(d) and d >= 0 else 0.0
 
 
 # 別のオリジンへのリダイレクトで必ず外すヘッダー（小文字）
@@ -160,15 +229,8 @@ class HttpClient:
         self._limiter = RateLimiter(self.rate_per_sec, sleep=self.sleep)
 
     def _backoff(self, attempt: int, retry_after: str | None) -> float:
-        if retry_after:
-            try:
-                seconds = float(retry_after)
-            except ValueError:
-                seconds = math.nan
-            if not math.isnan(seconds):
-                # 負の値（Retry-After: -5）は 0 にする（time.sleep が ValueError になるため。llm.py と同じ）
-                return min(max(seconds, 0.0), self.backoff_max)
-        return min(self.backoff_base * (2**attempt), self.backoff_max)
+        """待ち時間. 計算は retry_delay（llm.py と共通）. 不正な Retry-After は指数バックオフにする."""
+        return retry_delay(attempt, retry_after, base=self.backoff_base, cap=self.backoff_max)
 
     def request(
         self,
@@ -225,7 +287,9 @@ class HttpClient:
                     self._log_not_retried(method, path, idempotent, e.code in RETRY_STATUSES)
                     raise last_error from e
                 delay = self._backoff(attempt, retry_after)
-            except (urllib.error.URLError, TimeoutError) as e:
+            except (urllib.error.URLError, TimeoutError, *_TRANSIENT_ERRORS) as e:
+                # 応答の受信中の切断（RemoteDisconnected・ConnectionResetError）と本文の途中切れ（IncompleteRead）も
+                # 通信の失敗として扱う（生の例外を漏らさず HttpError にする）
                 reason = getattr(e, "reason", e)
                 last_error = HttpError(None, f"network error: {reason}")
                 # URLError でも送信中のタイムアウト等は届いた可能性がある。読み取りタイムアウト（TimeoutError）も同じ

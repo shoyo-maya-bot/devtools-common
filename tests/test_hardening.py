@@ -115,7 +115,7 @@ class HttpParamsTest(unittest.TestCase):
 
 
 class RetryAfterNegativeTest(unittest.TestCase):
-    def test_negative_retry_after_is_clamped_to_zero(self):
+    def test_negative_retry_after_falls_back_to_backoff(self):
         slept: list[float] = []
         calls = []
 
@@ -129,18 +129,22 @@ class RetryAfterNegativeTest(unittest.TestCase):
 
         c = HttpClient("https://api.example.test", opener=opener, sleep=slept.append, rate_per_sec=1000)
         self.assertEqual(c.get("x").status, 200)
-        self.assertEqual(slept[0], 0.0)  # 再試行の待ち（その後はレート制限の待ち）
+        # 負の Retry-After は使わず指数バックオフ（その後はレート制限の待ち）
+        self.assertEqual(slept[0], c.backoff_base)
         self.assertTrue(all(s >= 0 for s in slept))
 
     def test_backoff_never_negative(self):
         c = HttpClient("https://api.example.test")
-        self.assertEqual(c._backoff(0, "-5"), 0.0)
+        self.assertEqual(c._backoff(0, "-5"), c.backoff_base)
         self.assertEqual(c._backoff(0, "nan-ish"), c.backoff_base)
+        self.assertEqual(c._backoff(0, "0"), 0.0)
 
     def test_retry_after_nan_or_inf(self):
         c = HttpClient("https://api.example.test")
-        self.assertEqual(c._backoff(0, "inf"), c.backoff_max)
+        # nan・inf は使えない値として指数バックオフにする（float() は通るが time.sleep が ValueError・OverflowError）
+        self.assertEqual(c._backoff(0, "inf"), c.backoff_base)
         self.assertEqual(c._backoff(1, "nan"), c.backoff_base * 2)
+        self.assertEqual(c._backoff(2, "-inf"), c.backoff_base * 4)
 
     def test_all_failures_raise_http_error(self):
         def opener(req, timeout):

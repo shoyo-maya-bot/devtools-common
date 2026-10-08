@@ -2,6 +2,7 @@
 
 レビュー系・検証系ツールは Finding のリストを返し、出力は本モジュールに任せる。
 形式: markdown / html / csv / json（json は AI エージェント・他ツール連携用）
+CSV は表計算ソフトで開かれるため、`=` `+` `-` `@` タブ・CR で始まるセルの先頭に `'` を付ける（`neutralize_formula`）。
 
 JSON の形式は schemas/report.schema.json（SCHEMA_VERSION）で固定する。仕様は docs/REPORT_FORMAT.md。
 互換性のない変更（キーの削除・改名・型変更）をするときは SCHEMA_VERSION のメジャーを上げる。
@@ -62,6 +63,21 @@ def has_errors(findings: Iterable[Finding]) -> bool:
     return any(f.severity is Severity.ERROR for f in findings)
 
 
+# 表計算ソフトが数式として読む先頭の文字（CSV / 数式インジェクション）。タブ・CR も同じ扱い（OWASP の推奨）
+FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def neutralize_formula(value: Any) -> Any:
+    """表計算ソフトで数式として実行されないよう、`=` `+` `-` `@` タブ・CR で始まる文字列の先頭に `'` を付ける.
+
+    CSV・Excel に書き出すセルの値に使う（Excel・LibreOffice は先頭の `'` を「文字列として扱う」印として表示しない）。
+    文字列以外（数値など）はそのまま返す。JSON・Markdown・HTML の出力には使わない（値を変えないため）。
+    """
+    if isinstance(value, str) and value.startswith(FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
 def _md_cell(v: str) -> str:
     return str(v).replace("|", "\\|").replace("\n", "<br>")
 
@@ -109,7 +125,8 @@ def render(
         w = csv.DictWriter(buf, fieldnames=COLUMNS, lineterminator="\n")
         w.writeheader()
         for f in findings:
-            w.writerow({k: f.to_dict()[k] for k in COLUMNS})
+            d = f.to_dict()
+            w.writerow({k: neutralize_formula(d[k]) for k in COLUMNS})
         return buf.getvalue()
     if fmt == "markdown":
         lines = [f"# {title}", ""]

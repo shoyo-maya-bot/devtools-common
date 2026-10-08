@@ -12,7 +12,7 @@
 | `devtools_common.tempfiles` | `secure_tempdir()`：0700・例外時も必ず削除する一時ディレクトリ |
 | `devtools_common.config` | YAML/JSON 読み込み、`.env` 読み込み（外部依存なし）、`require_env()` |
 | `devtools_common.httpclient` | 外部 API 用クライアント：レート制限・指数バックオフ・`Retry-After` 対応（標準ライブラリのみ） |
-| `devtools_common.report` | `Finding`（指摘）と Markdown / HTML / CSV / JSON レポート出力。JSON は `schema_version` 付きで、`report_schema()` が JSON Schema を返す |
+| `devtools_common.report` | `Finding`（指摘）と Markdown / HTML / CSV / JSON レポート出力。JSON は `schema_version` 付きで、`report_schema()` が JSON Schema を返す。CSV は数式として実行されないよう `=` `+` `-` `@` タブ・CR で始まるセルの先頭に `'` を付ける（各ツールが CSV・Excel を書くときは `neutralize_formula(value)` を使う） |
 | `devtools_common.executables` | 外部ソフト（LibreOffice / Tesseract / draw.io）の探索: 環境変数 `DEVTOOLS_<名前>` → PATH → OS ごとの標準インストール先（Windows の Program Files 等） |
 | `devtools_common.llm` | LLM（Anthropic Messages API 互換）の小さなクライアント（標準ライブラリのみ）：再試行・プロンプトキャッシュ・構造化出力・費用の見積もり・伏せ字・テスト用の `FakeLLM` |
 | `devtools_common.excel` | Excel の読み取りの共通部品：表示形式どおりの値（`render_value`、和暦・ゼロ埋め・桁区切り等）、結合セルの索引（`MergeMap`）、複数段の見出しの判定（`header_depth` / `header_names`）、計算結果の無い数式セルを数式の文字列で補う読み込み（`load_workbook_with_formula_fallback`）。openpyxl が必要（extra `excel`） |
@@ -94,6 +94,9 @@ label = client.complete_json("次の指摘を分類してください: ...", sch
 - 料金表（`PRICES`, USD / 100 万トークン）は llm.py の 1 か所にあります。確認日をコメントに書いています。
   表に無いモデルは費用を `None` にし、「unknown model」の警告を出します（0 円と誤解させないため）
 - `record_path=` を渡すと応答を JSONL に記録し、テストでは `FakeLLM.from_jsonl()` で同じ応答を再生できます。
+  **応答の本文がファイルに残ります**。業務の文書を扱うときは置き場所に気をつけ、コミットしないでください。
+  `record_content=` で本文の扱いを選べます（既定 `"auto"`: `masker` があれば伏せて書く、無ければそのまま。
+  `"masked"`: `masker` で伏せる、`"omit"`: 本文を書かずトークン数などだけ残す、`"raw"`: そのまま）。
   `{"status": 529, "headers": {...}, "body": {...}}` の行でエラーと再試行も再現できます
 
 **レポートの形式は全ツール共通の約束です**: [docs/REPORT_FORMAT.md](docs/REPORT_FORMAT.md)（JSON Schema:
@@ -166,6 +169,7 @@ Git 依存の代わりにそれを使います（GitHub の認証なしでセッ
 ```bash
 ./setup.sh --dev          # Windows: .\scripts\setup.ps1 -Dev
 ruff check . && ruff format --check .
+pip install -e ".[dev]" -c constraints.txt   # CI と同じ版で入れる（constraints.txt は deps-lock.yml が Python 3.10 で作る）
 pytest            # または python -m unittest discover -s tests
 python scripts/verify_gates.py   # CI と同じゲートを同じ順で（push 前に）
 ```

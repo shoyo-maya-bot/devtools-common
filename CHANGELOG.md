@@ -16,6 +16,24 @@
   `MaxTokensError`、`Usage` と呼び出しごとのログ、料金表と `estimate_cost`、`Masker`（メールアドレス・電話番号・任意のパターン）、
   テスト用の `FakeLLM`（記録した JSONL の再生）
 - `httpclient`: `request()` に `allow_other_origin` 引数、`CrossOriginError`、`safe_urlopen`
+- `report.neutralize_formula(value)`: CSV・Excel に書くセルの値を、数式として実行されない形にする（`=` `+` `-` `@` タブ・CR で始まれば先頭に `'`）
+- `llm.LLMClient`: `record_content` 引数（`"auto"` / `"masked"` / `"omit"` / `"raw"`）。`record_path` に書く本文を伏せる・省く
+- CI: Windows（windows-latest）でもテストを流す。`constraints.txt`（`.github/workflows/deps-lock.yml` が作る）で CI の依存の版を固定
+- CI: `ci.yml`・`release.yml` で `secrets: inherit` をやめた（非公開の依存が無いので、共通ワークフローにシークレットを渡さない）
+
+### Changed
+
+- `report`: CSV 出力で、`=` `+` `-` `@` タブ・CR で始まるセルの先頭に `'` を付けるようにした（CSV / 数式インジェクション対策）。
+  CSV を機械で読み直している利用者は、先頭の `'` を外す必要がある（JSON 出力は変わらない）
+- `llm`: `masker` を渡したクライアントは、`record_path` に書く応答の本文も伏せるようにした（以前は伏せずに書いていた）。
+  以前と同じに書くには `record_content="raw"` を渡す
+
+### Fixed
+
+- `log.RedactFilter`: 引数をすべて文字列に変えてから整形していたため、`%d`・`%.1f` のログが TypeError になり、
+  「--- Logging error ---」が出てログが消えていた（llm の費用ログ・httpclient の再試行ログ）。先に整形してから伏せ字にする
+- `httpclient`: `path` に「?」があるときに `params` を足すと `items?page=2?q=x` になっていた。`&` でつなぐ
+- `httpclient`: `Retry-After` が負の値（`-5`）や `nan` のとき、`time.sleep` の ValueError が漏れていた。負の値は 0 にし、`nan` は無視する
 
 ### Security
 

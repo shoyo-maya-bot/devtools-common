@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import math
 import socket
 import threading
 import time
@@ -61,6 +62,14 @@ def _origin(url: str) -> tuple[str, str, int | None]:
     except ValueError:
         port = None
     return scheme, (p.hostname or "").lower(), port or _DEFAULT_PORTS.get(scheme)
+
+
+def _add_query(url: str, params: Mapping[str, Any]) -> str:
+    """URL に params を足す. path にすでに「?」があれば「&」でつなぐ（`items?page=2?q=x` にしない）."""
+    p = urllib.parse.urlsplit(url)
+    extra = urllib.parse.urlencode(params, doseq=True)
+    query = f"{p.query}&{extra}" if p.query else extra
+    return urllib.parse.urlunsplit((p.scheme, p.netloc, p.path, query, p.fragment))
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -153,9 +162,12 @@ class HttpClient:
     def _backoff(self, attempt: int, retry_after: str | None) -> float:
         if retry_after:
             try:
-                return min(float(retry_after), self.backoff_max)
+                seconds = float(retry_after)
             except ValueError:
-                pass
+                seconds = math.nan
+            if not math.isnan(seconds):
+                # 負の値（Retry-After: -5）は 0 にする（time.sleep が ValueError になるため。llm.py と同じ）
+                return min(max(seconds, 0.0), self.backoff_max)
         return min(self.backoff_base * (2**attempt), self.backoff_max)
 
     def request(
@@ -185,7 +197,7 @@ class HttpClient:
                 "(pass allow_other_origin=True to send without the default headers)"
             )
         if params:
-            url += "?" + urllib.parse.urlencode(params, doseq=True)
+            url = _add_query(url, params)
         data = None
         defaults = self.headers if same_origin else {}
         merged = {"Accept": "application/json", **defaults, **(headers or {})}

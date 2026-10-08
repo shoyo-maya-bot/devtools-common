@@ -55,10 +55,10 @@ Anthropic Messages API と互換のエンドポイントを呼ぶ小さなクラ
 | 名前 | 内容 |
 |---|---|
 | `LLMClient(model, *, max_tokens, temperature, system, cache_system, masker, ...)` | `complete()` で 1 回呼ぶ。結果は `Completion`（`text` / `content` / `stop_reason` / `usage` / `request_id` / `duration_ms` / `cost_usd`） |
-| `LLMClient.complete_json(messages, schema=...)` | 構造化出力。スキーマを `input_schema` にしたツール 1 つを強制し、結果を検証して返す |
+| `LLMClient.complete_json(messages, schema=...)` | 構造化出力。スキーマを `input_schema` にしたツール 1 つを強制し、結果を検証して返す（`tools` / `tool_choice` は渡せない。渡すと `ValueError`） |
 | `cached_text(text, ttl=None)` | `cache_control`（ephemeral）付きの text ブロック。何度も使う長い資料に付ける |
 | `Usage` / `estimate_cost(model, in, out)` / `PRICES` | トークン数と費用の見積もり（USD）。料金表はモデル ID の接頭辞で引く |
-| `Masker(patterns=..., words=...)` | 送る前の伏せ字。メールアドレス・電話番号（全角・区切りなし・+81 を含む）は常に伏せる |
+| `Masker(patterns=..., words=...)` | 送る前の伏せ字。メールアドレス・電話番号（全角・+81 を含む。区切りの無い数字の列の扱いは下記）は常に伏せる |
 | `FakeLLM(responses)` / `FakeLLM.from_jsonl(path)` | 記録した応答を順に返すテスト用クライアント（通信しない） |
 | 例外 | `LLMError` を基底に `APIStatusError` / `APIConnectionError` / `MaxTokensError` / `SchemaValidationError` |
 
@@ -86,9 +86,19 @@ label = client.complete_json("次の指摘を分類してください: ...", sch
   API キーは `ANTHROPIC_API_KEY`（ゲートウェイ向けに `ANTHROPIC_AUTH_TOKEN` も使える）
 - 429 / 5xx（529 を含む）/ 接続エラー・タイムアウトは再試行します（既定 3 回）。`retry-after` があればそれに従い、
   無ければ指数バックオフ。どちらも `backoff_max` 秒までで、ゆらぎを足します。
+  再送しても直らない失敗（証明書の検証エラーなどの TLS の誤り、`unknown url type` などの URL の誤り）は再試行せず、
+  すぐ `APIConnectionError`（メッセージに `permanent`）にします。`http.client.HTTPException`（応答の 1 行目が壊れた
+  `BadStatusLine` 等）も `APIConnectionError` に包みます（途中切れの `IncompleteRead` と `BadStatusLine` は再試行する）
   **再送は結果を壊しませんが、サーバーに届いて処理された後に接続が切れた場合は二重に課金されます**。
   費用を優先するときは `max_retries=0` にします
 - 出力が `max_tokens` で切れたら `MaxTokensError`（`e.completion` に途中までの結果）
+- 電話番号の伏せ字（`Masker` が常に行う）:
+  - ハイフン・空白・括弧などの区切りがある、0 で始まる 10〜11 桁（`03-1234-5678`、`090 1234 5678`、全角も）は伏せる
+  - `+81` で始まるもの（`+81 90-1234-5678`、`+819012345678`）は伏せる
+  - **区切りの無い数字だけの列**は注文番号・ID と区別できないため、次のどちらかのときだけ伏せます。
+    (1) 携帯・IP 電話の形（`070` / `080` / `090` / `050` + 8 桁の 11 桁）、
+    (2) 直前 12 文字以内に「電話」「携帯」「連絡先」「問い合わせ先」「TEL」「FAX」「Phone」「☎」などの語がある。
+    それ以外（`ID 0123456789 の注文` など）は伏せません。確実に伏せたい番号の形は `patterns=` で足してください
 - `complete_json` の検証は、`jsonschema` が入っていればそれを使い、無ければ type・required・enum・properties・items だけを確かめます
 - 呼び出しごとに INFO で 1 行のログ（モデル・入出力とキャッシュのトークン数・所要時間・request-id・費用）を出します。
   本文は出しません。`record.llm` に同じ内容の dict が入ります
@@ -223,6 +233,7 @@ Git 依存の代わりにそれを使います（GitHub の認証なしでセッ
 ## バージョニング
 
 - [SemVer](https://semver.org/lang/ja/)。`pyproject.toml` の `version` が正。
+- 未リリースの変更がある間は、次の版の開発版（例 `0.4.0.dev0`）を名乗る。リリースのときに `.devN` を外す。
 - 公開 API（上表のモジュールの公開関数・クラス）を壊す変更は MAJOR（0.x の間は MINOR）を上げる。
 - リリース: `version` と `CHANGELOG.md` を更新 → マージ → `git tag v0.1.0 && git push origin v0.1.0`
   （`release.yml` がタグと `version` の一致を検査し、wheel を GitHub Release に添付）。
@@ -234,7 +245,7 @@ Git 依存の代わりにそれを使います（GitHub の認証なしでセッ
 ./setup.sh --dev          # Windows: .\scripts\setup.ps1 -Dev
 ruff check . && ruff format --check .
 pip install -e ".[dev]" -c constraints.txt   # CI と同じ版で入れる（constraints.txt は deps-lock.yml が Python 3.10 で作る）
-pytest            # または python -m unittest discover -s tests
+pytest            # 全件（unittest の discover は pytest 形式のテストを拾わず一部しか走らないので使わない）
 python scripts/verify_gates.py   # CI と同じゲートを同じ順で（push 前に）
 ```
 

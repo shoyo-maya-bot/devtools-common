@@ -10,12 +10,10 @@
   `ReviewItem.fingerprint_v1`、`resolve_history_v2()`（office-review の `history.resolve` と同じ規則で v2 に結び付ける）。
   既存の `fingerprint` / `ReviewItem.fingerprint` / `resolve_history` の値と振る舞いは変えない
 - `review_results.unescape_cell()`: 表のセルの `\\` と `\|` のエスケープを戻す（`report` の Markdown 出力の逆）
-
 - `review_results`: AI レビュー結果（Front Matter + Markdown 表、BOM 可、`\|` と末尾 `\\|` のエスケープ）と判定の履歴
   （history.jsonl、壊れた行は行番号付きで警告して飛ばす）の読み込み。office-review の `review_harness/results.py`・`history.py`
   から移した（office-review と quality-analytics が同じ部品で読む）。`parse_review_file` / `load_review_dir` / `load_history` /
   `resolve_history` / `ReviewItem` / `ResolvedHistory` / `fingerprint` / `normalize` / `front_matter` / `split_row` / `table_cells`
-
 - `excel`: Excel の読み取りの共通部品（extra `excel` で openpyxl を入れる）。doc-to-markdown と design-diff に重複していた処理をここへ移した。
   `render_value` / `render_cell`（表示形式どおりの文字列。doc-to-markdown の xlsx_numfmt から移動）、`MergeMap`（結合セルの索引）、
   `header_depth` / `header_names`（複数段の見出しの判定と「親/子」の列名。`header_rows` で段数を指定可）、`looks_numeric`、
@@ -31,15 +29,14 @@
 - CI: Windows（windows-latest）でもテストを流す。`constraints.txt`（`.github/workflows/deps-lock.yml` が作る）で CI の依存の版を固定
 - CI: `ci.yml`・`release.yml` で `secrets: inherit` をやめた（非公開の依存が無いので、共通ワークフローにシークレットを渡さない）
 
-### Fixed
-
-- `review_results.load_history`: `decision`・`check_id`・`key`・`fingerprint`・`fingerprint_v2` が文字列でない行（list など）で
-  TypeError になっていた → 警告して飛ばす。`fingerprint_v2`・`fingerprint`・`key` がどれも無い行で `resolve_history` →
-  `all_records()` が KeyError になっていた → 読み込み時に壊れた行として警告して飛ばす（`all_records()` も key の無い行で落ちない）
-- `report`: Markdown の表のセルで `\` をエスケープしていなかった（値 `a\|b` が列ずれになる）→ `\` も `\\` にする
-
 ### Changed
 
+- 版を `0.4.0.dev0` にした（`llm`・`excel`・`review_results` を足した未リリースの変更が入っているのに `0.3.0` を名乗っていた）。
+  次のリリースは `0.4.0`
+- `llm.Masker`: 区切りの無い 0 始まり 10〜11 桁の数字（`ID 0123456789 の注文` などの注文番号）を電話番号として伏せていた。
+  区切りの無い数字だけの列は、携帯・IP 電話の形（070/080/090/050 + 8 桁）か、直前に「電話」「TEL」などの語があるときだけ伏せる。
+  区切り付き・`+81` 付きはこれまでどおり伏せる（README に仕様）
+- README の開発手順のテストを `pytest` だけにした（`python -m unittest discover -s tests` は一部しか走らない）
 - `report`: CSV 出力で、`=` `+` `-` `@` タブ・CR で始まるセルの先頭に `'` を付けるようにした（CSV / 数式インジェクション対策）。
   CSV を機械で読み直している利用者は、先頭の `'` を外す必要がある（JSON 出力は変わらない）
 - `llm`: `masker` を渡したクライアントは、`record_path` に書く応答の本文も伏せるようにした（以前は伏せずに書いていた）。
@@ -47,6 +44,15 @@
 
 ### Fixed
 
+- `llm.LLMClient.complete_json`: `tools=` / `tool_choice=` を渡すと `TypeError: got multiple values for keyword argument 'tools'`
+  になっていた。分かりやすい `ValueError` で弾く（自分のツールを使うときは `complete()`）
+- `llm`: 証明書の検証エラーなどの TLS の誤り・URL の誤りも、接続エラーとして 3 回待って再試行していた。直らない失敗は
+  再試行せず、すぐ `APIConnectionError` にする。`http.client.HTTPException`（`BadStatusLine` 等）が `LLMError` に包まれずに
+  漏れていた → `APIConnectionError` に包む（`IncompleteRead` と `BadStatusLine` は再試行する）
+- `review_results.load_history`: `decision`・`check_id`・`key`・`fingerprint`・`fingerprint_v2` が文字列でない行（list など）で
+  TypeError になっていた → 警告して飛ばす。`fingerprint_v2`・`fingerprint`・`key` がどれも無い行で `resolve_history` →
+  `all_records()` が KeyError になっていた → 読み込み時に壊れた行として警告して飛ばす（`all_records()` も key の無い行で落ちない）
+- `report`: Markdown の表のセルで `\` をエスケープしていなかった（値 `a\|b` が列ずれになる）→ `\` も `\\` にする
 - `llm.Masker`: `tool_use` ブロックの `input` と `tool_result` ブロックの `content`（文字列・ブロックの list）を伏せていなかった。
   `LLMClient(masker=...)` で送る本文の、ツールの引数と結果も伏せる
 - `config.load_dotenv`: BOM 付きの .env で先頭のキーが「\ufeffKEY」になっていた（utf-8-sig で読む）。
@@ -54,7 +60,6 @@
 - `log.redact`: Anthropic の API キー（`sk-ant-…`）と `Authorization: Basic …` を伏せていなかった
 - `report.to_json_obj`: meta に null・list・dict・NaN が入ると、同梱の report.schema.json に合わない JSON を出していた。
   スキーマに合わない値のキーは落として警告ログを出す。tool・title・指摘の各項目は文字列にする
-
 - `log.RedactFilter`: 引数をすべて文字列に変えてから整形していたため、`%d`・`%.1f` のログが TypeError になり、
   「--- Logging error ---」が出てログが消えていた（llm の費用ログ・httpclient の再試行ログ）。先に整形してから伏せ字にする
 - `httpclient`: `path` に「?」があるときに `params` を足すと `items?page=2?q=x` になっていた。`&` でつなぐ

@@ -14,6 +14,8 @@ import csv
 import html
 import io
 import json
+import logging
+import math
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
@@ -22,6 +24,8 @@ from importlib.resources import files
 from typing import Any, TextIO
 
 SCHEMA_VERSION = "1.0"
+
+_log = logging.getLogger(__name__)
 
 
 class Severity(str, Enum):
@@ -95,15 +99,35 @@ def to_json_obj(
     tool: str = "",
     tool_version: str = "",
 ) -> dict[str, Any]:
+    """JSON レポートの dict. 必ず schemas/report.schema.json に合う形にする.
+
+    - meta の値は文字列・数値・真偽値だけを残す。None・list・dict・NaN / 無限大などスキーマに合わない値は落とし、
+      落としたキーを警告ログに出す（キーは文字列にする）
+    - tool・tool_version・title と、指摘の各項目は文字列にする（数値などが渡されても型が崩れないように）
+    """
     return {
         "schema_version": SCHEMA_VERSION,
-        "tool": tool,
-        "tool_version": tool_version,
-        "title": title,
-        "meta": dict(meta or {}),
+        "tool": str(tool),
+        "tool_version": str(tool_version),
+        "title": str(title),
+        "meta": _schema_meta(meta),
         "summary": summarize(findings),
-        "findings": [f.to_dict() for f in findings],
+        "findings": [{k: str(v) for k, v in f.to_dict().items()} for f in findings],
     }
+
+
+def _schema_meta(meta: Mapping[str, Any] | None) -> dict[str, str | int | float | bool]:
+    """meta のうちスキーマ（値は string / number / boolean）に合うものだけを返す."""
+    out: dict[str, str | int | float | bool] = {}
+    dropped: list[str] = []
+    for k, v in (meta or {}).items():
+        if isinstance(v, (str, bool, int)) or (isinstance(v, float) and math.isfinite(v)):
+            out[str(k)] = v
+        else:
+            dropped.append(str(k))
+    if dropped:
+        _log.warning("report meta: dropped keys whose values are not string/number/boolean: %s", ", ".join(dropped))
+    return out
 
 
 def render(

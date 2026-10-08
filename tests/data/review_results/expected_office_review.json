@@ -1,0 +1,329 @@
+{
+ "files": {
+  "2026-10-02_order-api_result.md": {
+   "items": [
+    {
+     "basis": "3. 処理「件数が多い場合は適宜ページングする」",
+     "check_id": "ALL-003",
+     "doc_type": "api",
+     "file": "2026-10-02_order-api_result.md",
+     "finding": "「適宜ページングする」では 1 ページの件数と並び順の安定性が決まらない",
+     "fingerprint": "fp:664a57a03c794ea3",
+     "invalid_check": "例示ではなく仕様の記載のため該当しない",
+     "key": "2026-10-02_order-api_result.md#1",
+     "location": "3. 処理 3",
+     "no": 1,
+     "reviewed_at": "2026-10-02",
+     "role": "spec_manager",
+     "severity": "MUST",
+     "target": "inputs/api/order-api.md"
+    },
+    {
+     "basis": "4. 出力「エラー時は共通のエラー応答」とあるが参照先が無い",
+     "check_id": "API-003",
+     "doc_type": "api",
+     "file": "2026-10-02_order-api_result.md",
+     "finding": "該当なし・入力誤り時のステータスとメッセージ ID が無い",
+     "fingerprint": "fp:f7ef77d6d07c6b1a",
+     "invalid_check": "共通エラー仕様書の参照が無いため該当しない",
+     "key": "2026-10-02_order-api_result.md#2",
+     "location": "4. 出力",
+     "no": 2,
+     "reviewed_at": "2026-10-02",
+     "role": "spec_manager",
+     "severity": "MUST",
+     "target": "inputs/api/order-api.md"
+    },
+    {
+     "basis": "2. 入力 memberId（必須）",
+     "check_id": "API-006",
+     "doc_type": "api",
+     "file": "2026-10-02_order-api_result.md",
+     "finding": "memberId を指定すれば他人の注文も取得できる。ログイン会員と一致するかの認可が必要",
+     "fingerprint": "fp:1e490235138b1447",
+     "invalid_check": "公開情報ではないため該当しない",
+     "key": "2026-10-02_order-api_result.md#3",
+     "location": "2. 入力",
+     "no": 3,
+     "reviewed_at": "2026-10-02",
+     "role": "infra",
+     "severity": "MUST",
+     "target": "inputs/api/order-api.md"
+    },
+    {
+     "basis": "3. 処理 1",
+     "check_id": "API-007",
+     "doc_type": "api",
+     "file": "2026-10-02_order-api_result.md",
+     "finding": "参照テーブルと検索条件・使うインデックスが書かれていない",
+     "fingerprint": "fp:0ce93557283e3912",
+     "invalid_check": "DB を使う API のため該当しない",
+     "key": "2026-10-02_order-api_result.md#4",
+     "location": "3. 処理 1",
+     "no": 4,
+     "reviewed_at": "2026-10-02",
+     "role": "dba",
+     "severity": "WANT",
+     "target": "inputs/api/order-api.md"
+    },
+    {
+     "basis": "2. 入力 from",
+     "check_id": "NEW",
+     "doc_type": "api",
+     "file": "2026-10-02_order-api_result.md",
+     "finding": "from の日付はどのタイムゾーンで判定するか（日付の境界）",
+     "fingerprint": "fp:766ecf4b8f721096",
+     "invalid_check": "既存の観点に無い",
+     "key": "2026-10-02_order-api_result.md#5",
+     "location": "3. 処理 2",
+     "no": 5,
+     "reviewed_at": "2026-10-02",
+     "role": "ops",
+     "severity": "WANT",
+     "target": "inputs/api/order-api.md"
+    },
+    {
+     "basis": "記載なし",
+     "check_id": "API-005",
+     "doc_type": "api",
+     "file": "2026-10-02_order-api_result.md",
+     "finding": "1 会員の注文件数の上限はどの程度を想定しているか",
+     "fingerprint": "fp:fa8d61e500b39b35",
+     "invalid_check": "非機能要件書の参照も無い",
+     "key": "2026-10-02_order-api_result.md#6",
+     "location": "全体",
+     "no": 6,
+     "reviewed_at": "2026-10-02",
+     "role": "infra",
+     "severity": "Q",
+     "target": "inputs/api/order-api.md"
+    }
+   ],
+   "problems": []
+  },
+  "2026-10-03_stock-db_result.md": {
+   "items": [
+    {
+     "basis": "2. 列「区分」",
+     "check_id": "DB-001",
+     "doc_type": "db",
+     "file": "2026-10-03_stock-db_result.md",
+     "finding": "区分が A|B の 2 値か決まっていない",
+     "fingerprint": "fp:e382fc582c881b88",
+     "invalid_check": "該当しない",
+     "key": "2026-10-03_stock-db_result.md#1",
+     "location": "2. テーブル | 在庫",
+     "no": 1,
+     "reviewed_at": "2026-10-03",
+     "role": "dba",
+     "severity": "MUST",
+     "target": "inputs/db/stock-db.md"
+    },
+    {
+     "basis": "根拠は末尾\\\\",
+     "check_id": "NEW",
+     "doc_type": "db",
+     "file": "2026-10-03_stock-db_result.md",
+     "finding": "出力先 C:\\\\data\\\\ の末尾が \\\\",
+     "fingerprint": "fp:75658c3f77bfb989",
+     "invalid_check": "確認\\\\",
+     "key": "2026-10-03_stock-db_result.md#2",
+     "location": "C:\\\\data\\\\",
+     "no": 2,
+     "reviewed_at": "2026-10-03",
+     "role": "ops",
+     "severity": "WANT",
+     "target": "inputs/db/stock-db.md"
+    },
+    {
+     "basis": "3. 索引",
+     "check_id": "DB-002",
+     "doc_type": "db",
+     "file": "2026-10-03_stock-db_result.md",
+     "finding": "索引名の<br>命名規則",
+     "fingerprint": "fp:8aad4caeebb6f5c9",
+     "invalid_check": "該当しない",
+     "key": "2026-10-03_stock-db_result.md#3",
+     "location": "3. 索引",
+     "no": 3,
+     "reviewed_at": "2026-10-03",
+     "role": "dba",
+     "severity": "NITS",
+     "target": "inputs/db/stock-db.md"
+    },
+    {
+     "basis": "5",
+     "check_id": "DB-005",
+     "doc_type": "db",
+     "file": "2026-10-03_stock-db_result.md",
+     "finding": "ＡＢＣ の   世代数",
+     "fingerprint": "fp:65d4923f8d2f6f98",
+     "invalid_check": "該当しない",
+     "key": "2026-10-03_stock-db_result.md#6",
+     "location": "５．　バックアップ",
+     "no": 6,
+     "reviewed_at": "2026-10-03",
+     "role": "Infra",
+     "severity": "WANT",
+     "target": "inputs/db/stock-db.md"
+    }
+   ],
+   "problems": [
+    {
+     "actual": "",
+     "expected": "",
+     "field": "",
+     "location": "2026-10-03_stock-db_result.md:13",
+     "message": "No が数字ではありません",
+     "rule_id": "lint.table",
+     "severity": "error",
+     "suggestion": ""
+    },
+    {
+     "actual": "",
+     "expected": "",
+     "field": "",
+     "location": "2026-10-03_stock-db_result.md:14",
+     "message": "列数が 5 です",
+     "rule_id": "lint.table",
+     "severity": "error",
+     "suggestion": ""
+    }
+   ]
+  },
+  "2026-10-04_broken_result.md": {
+   "items": [],
+   "problems": [
+    {
+     "actual": "",
+     "expected": "",
+     "field": "",
+     "location": "2026-10-04_broken_result.md",
+     "message": "Front Matter に target がありません",
+     "rule_id": "lint.meta",
+     "severity": "error",
+     "suggestion": ""
+    },
+    {
+     "actual": "",
+     "expected": "",
+     "field": "",
+     "location": "2026-10-04_broken_result.md",
+     "message": "Front Matter に type がありません",
+     "rule_id": "lint.meta",
+     "severity": "error",
+     "suggestion": ""
+    },
+    {
+     "actual": "",
+     "expected": "",
+     "field": "",
+     "location": "2026-10-04_broken_result.md",
+     "message": "Front Matter に reviewed_at がありません",
+     "rule_id": "lint.meta",
+     "severity": "error",
+     "suggestion": ""
+    },
+    {
+     "actual": "",
+     "expected": "",
+     "field": "",
+     "location": "2026-10-04_broken_result.md",
+     "message": "指摘の表（列: No / check_id / 重要度 / ロール / 箇所 / 指摘 / 根拠 / 無効となるケースの確認）がありません",
+     "rule_id": "lint.table",
+     "severity": "error",
+     "suggestion": ""
+    }
+   ]
+  }
+ },
+ "history": {
+  "records": [
+   {
+    "check_id": "ALL-003",
+    "decision": "adopted",
+    "finding": "「適宜ページングする」では 1 ページの件数と並び順の安定性が決まらない",
+    "key": "2026-10-02_order-api_result.md#1",
+    "severity": "MUST"
+   },
+   {
+    "check_id": "API-007",
+    "decision": "rejected",
+    "finding": "参照テーブルと検索条件・使うインデックスが書かれていない",
+    "key": "2026-10-02_order-api_result.md#2"
+   },
+   {
+    "check_id": "DB-001",
+    "decision": "rejected",
+    "fingerprint": "fp:e382fc582c881b88",
+    "key": "2026-10-03_stock-db_result.md#1"
+   }
+  ],
+  "warnings": [
+   "警告: history.jsonl:2 を飛ばしました（JSON として読めません: Expecting property name enclosed in double quotes）",
+   "警告: history.jsonl:3 を飛ばしました（decision（adopted / rejected）と check_id が必要です）",
+   "警告: history.jsonl:6 を飛ばしました（decision（adopted / rejected）と check_id が必要です）",
+   "警告: history.jsonl:7 を飛ばしました（decision（adopted / rejected）と check_id が必要です）"
+  ]
+ },
+ "load_all": [
+  "2026-10-02_order-api_result.md#1",
+  "2026-10-02_order-api_result.md#2",
+  "2026-10-02_order-api_result.md#3",
+  "2026-10-02_order-api_result.md#4",
+  "2026-10-02_order-api_result.md#5",
+  "2026-10-02_order-api_result.md#6",
+  "2026-10-03_stock-db_result.md#1",
+  "2026-10-03_stock-db_result.md#2",
+  "2026-10-03_stock-db_result.md#3",
+  "2026-10-03_stock-db_result.md#6"
+ ],
+ "resolved": {
+  "all_records": {
+   "fp:664a57a03c794ea3": {
+    "check_id": "ALL-003",
+    "decision": "adopted",
+    "finding": "「適宜ページングする」では 1 ページの件数と並び順の安定性が決まらない",
+    "fingerprint": "fp:664a57a03c794ea3",
+    "key": "2026-10-02_order-api_result.md#1",
+    "severity": "MUST"
+   },
+   "fp:e382fc582c881b88": {
+    "check_id": "DB-001",
+    "decision": "rejected",
+    "fingerprint": "fp:e382fc582c881b88",
+    "key": "2026-10-03_stock-db_result.md#1"
+   },
+   "legacy:2026-10-02_order-api_result.md#2": {
+    "check_id": "API-007",
+    "decision": "rejected",
+    "finding": "参照テーブルと検索条件・使うインデックスが書かれていない",
+    "key": "2026-10-02_order-api_result.md#2"
+   }
+  },
+  "decisions": {
+   "fp:664a57a03c794ea3": {
+    "check_id": "ALL-003",
+    "decision": "adopted",
+    "finding": "「適宜ページングする」では 1 ページの件数と並び順の安定性が決まらない",
+    "fingerprint": "fp:664a57a03c794ea3",
+    "key": "2026-10-02_order-api_result.md#1",
+    "severity": "MUST"
+   },
+   "fp:e382fc582c881b88": {
+    "check_id": "DB-001",
+    "decision": "rejected",
+    "fingerprint": "fp:e382fc582c881b88",
+    "key": "2026-10-03_stock-db_result.md#1"
+   }
+  },
+  "orphans": [
+   {
+    "check_id": "API-007",
+    "decision": "rejected",
+    "finding": "参照テーブルと検索条件・使うインデックスが書かれていない",
+    "key": "2026-10-02_order-api_result.md#2"
+   }
+  ]
+ }
+}

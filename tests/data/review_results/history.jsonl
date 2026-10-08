@@ -1,0 +1,8 @@
+﻿{"key": "2026-10-02_order-api_result.md#1", "decision": "adopted", "check_id": "ALL-003", "severity": "MUST", "finding": "「適宜ページングする」では 1 ページの件数と並び順の安定性が決まらない"}
+{ 壊れた行
+{"key": "b#1"}
+
+{"key": "2026-10-02_order-api_result.md#2", "decision": "rejected", "check_id": "API-007", "finding": "参照テーブルと検索条件・使うインデックスが書かれていない"}
+["not", "object"]
+{"decision": "maybe", "check_id": "X"}
+{"key": "2026-10-03_stock-db_result.md#1", "fingerprint": "fp:e382fc582c881b88", "decision": "rejected", "check_id": "DB-001"}

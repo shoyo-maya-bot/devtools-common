@@ -15,6 +15,7 @@
 | `devtools_common.report` | `Finding`（指摘）と Markdown / HTML / CSV / JSON レポート出力。JSON は `schema_version` 付きで、`report_schema()` が JSON Schema を返す。CSV は数式として実行されないよう `=` `+` `-` `@` タブ・CR で始まるセルの先頭に `'` を付ける（各ツールが CSV・Excel を書くときは `neutralize_formula(value)` を使う） |
 | `devtools_common.executables` | 外部ソフト（LibreOffice / Tesseract / draw.io）の探索: 環境変数 `DEVTOOLS_<名前>` → PATH → OS ごとの標準インストール先（Windows の Program Files 等） |
 | `devtools_common.llm` | LLM（Anthropic Messages API 互換）の小さなクライアント（標準ライブラリのみ）：再試行・プロンプトキャッシュ・構造化出力・費用の見積もり・伏せ字・テスト用の `FakeLLM` |
+| `devtools_common.review_results` | AI レビュー結果（`reviews/*_result.md`：Front Matter + Markdown 表）と判定の履歴（`history.jsonl`）の読み込み。office-review と quality-analytics が同じ規則で読むための部品（下の「レビュー結果の読み込み」） |
 | `devtools_common.excel` | Excel の読み取りの共通部品：表示形式どおりの値（`render_value`、和暦・ゼロ埋め・桁区切り等）、結合セルの索引（`MergeMap`）、複数段の見出しの判定（`header_depth` / `header_names`）、計算結果の無い数式セルを数式の文字列で補う読み込み（`load_workbook_with_formula_fallback`）。openpyxl が必要（extra `excel`） |
 
 ### HTTP のリトライと二重送信
@@ -139,6 +140,55 @@ names = header_names(filled, 1, depth, range(1, ws.max_column + 1))  # 例: ["�
 | `header_depth` | 見出し行から始まる結合が下の行まで続き、その行が文字だけなら次の行も見出し。横に結合した見出しの下の各列がすべて文字なら次の行も見出し。最大 3 段。`header_rows=` で段数を指定 |
 | `header_names` | 上の段から `/` でつなぐ（`金額/税抜`）。縦結合で同じ値が続く段は 1 つ |
 | `load_workbook_with_formula_fallback` | 計算結果（data_only）で読む。計算結果の無い数式セル（openpyxl で作ったブック等）には数式の文字列を入れ、そのセルの一覧を返す |
+
+## レビュー結果の読み込み（`devtools_common.review_results`）
+
+office-review（`harness`）が書き、office-review と quality-analytics が読む「レビュー結果ファイル」と「判定の履歴」を読む部品です。
+office-review の `review_harness/results.py`・`history.py` の実装をそのまま移しました（`tests/test_review_results.py` が、
+移す前の office-review の実装で読んだ結果と同じになることを確かめています）。依存は PyYAML だけです。
+
+```python
+from devtools_common.review_results import (
+    ReviewItem,
+    ResolvedHistory,
+    load_history,
+    load_review_dir,
+    parse_review_file,
+    resolve_history,
+)
+
+items, problems = parse_review_file("reviews/2026-10-02_order-api_result.md", doc_types=["api", "db"])
+items = load_review_dir("reviews")  # *_result.md をファイル名順に。形式の誤りの行は飛ばす
+records = load_history("data/history.jsonl", warn=print)  # 壊れた行は「警告: history.jsonl:<行番号> …」を warn に渡して飛ばす
+resolved = resolve_history(records, items)
+decision = resolved.decisions.get(items[0].fingerprint, {}).get("decision")  # "adopted" / "rejected" / None
+```
+
+| 名前 | シグネチャ・戻り値 | 決まりごと |
+|---|---|---|
+| `parse_review_file` | `(path: str \| Path, *, doc_types: Collection[str] \| None = None) -> tuple[list[ReviewItem], list[Finding]]` | UTF-8（BOM 可）。Front Matter の `target`・`type`・`reviewed_at` が無い、`type` が `doc_types` に無い（渡したときだけ）、表が無い、列数違い・No が数字でない行は `Finding`（`lint.meta` / `lint.table`、error）にして、その行は飛ばす |
+| `load_review_dir` | `(reviews_dir: str \| Path, pattern: str = "*_result.md") -> list[ReviewItem]` | ファイル名順に `parse_review_file` した指摘をつなげる（形式の誤りは返さない） |
+| `load_history` | `(path: str \| Path, warn: Callable[[str], Any] \| None = None) -> list[dict[str, Any]]` | 1 行 1 判定、書いた順。ファイルが無ければ `[]`。BOM 可。JSON でない・オブジェクトでない・`decision`（adopted / rejected）か `check_id` が無い行は、行番号付きで警告して飛ばす（`warn` の既定は標準エラー） |
+| `resolve_history` | `(records: Iterable[dict[str, Any]], items: Iterable[ReviewItem]) -> ResolvedHistory` | 同じ指紋は後の行が勝つ。`fingerprint` の無い旧形式の行は、`key`（ファイル名#No）の指摘の本文と `check_id` が一致するときだけ結び付け、違えば `orphans` |
+| `ResolvedHistory` | `decisions: dict[str, dict]`（指紋 → 最新の判定）、`orphans: list[dict]`、`all_records() -> dict[str, dict]` | `all_records()` は集計用（孤立した旧形式は `legacy:<key>`） |
+| `ReviewItem` | dataclass: `file, target, doc_type, reviewed_at: str, no: int, check_id, severity, role, location, finding, basis, invalid_check: str`、プロパティ `key: str`（`ファイル名#No`）・`fingerprint: str`（`fp:` + 16 桁） | `reviewed_at` は日付なら ISO 形式の文字列 |
+| `fingerprint` | `(target: str, location: str, finding: str) -> str` | 指摘の指紋。`target` が空ならファイル名を渡す。`normalize` した値の SHA-256 の先頭 16 桁 |
+| `normalize` | `(text: str) -> str` | NFKC、空白の連続を 1 つに、前後の空白を除く、英字を小文字に |
+| `front_matter` | `(text: str) -> dict[str, Any]` | 先頭の `---` 〜 `---` の YAML。無い・読めない・mapping でなければ `{}`（BOM は読むときに外す） |
+| `split_row` | `(line: str) -> list[str]` | 表の 1 行をセルに分ける（エスケープはそのまま。下の「表のエスケープ」） |
+| `table_cells` | `(line: str) -> list[str]` | `split_row` の各セルの前後の空白を除き、エスケープした縦棒だけを戻す（下の「表のエスケープ」） |
+| 定数 | `COLUMNS`（表の列名 8 つ）、`REQUIRED_META`、`HISTORY_DECISIONS`、`HISTORY_REQUIRED_KEYS` | |
+
+表のエスケープ（office-review の実装と同じ）:
+
+```text
+| a\| b |     → セル 1 つ: "a| b"           （\| はセルの中の縦棒）
+| a\\| b |    → セル 2 つ: "a\\", "b"       （\\ の後ろの | は区切り。\\ はそのまま残す）
+| a | b\|     → セル 2 つ: "a", "b|"         （末尾の \| は区切りではない）
+| x<br>y |    → "x<br>y"                    （<br> などは戻さない。指紋が変わらないように）
+```
+
+形式を変えるときは、office-review と quality-analytics の互換テストも合わせて直します。
 
 ## 取り込み方（ツール側の `pyproject.toml`）
 

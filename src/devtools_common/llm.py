@@ -295,15 +295,31 @@ class Masker:
     __call__ = text
 
     def content(self, value: Any) -> Any:
-        """文字列、または content ブロックの list の text 部分を伏せる（それ以外はそのまま）."""
+        """文字列、または content ブロックの list の本文を伏せる.
+
+        - text ブロック: `text`
+        - tool_use ブロック（assistant がツールに渡した引数）: `input` の中の文字列をすべて（キーはそのまま）
+        - tool_result ブロック（ツールの結果）: `content`（文字列、またはブロックの list を同じ規則で）
+        それ以外（画像など）と、`type`・`id`・`name`・`tool_use_id` などの本文でないキーはそのまま。
+        """
         if isinstance(value, str):
             return self.text(value)
         if isinstance(value, list):
-            return [
-                {**b, "text": self.text(b["text"])} if isinstance(b, dict) and isinstance(b.get("text"), str) else b
-                for b in value
-            ]
+            return [self._block(b) for b in value]
         return value
+
+    def _block(self, b: Any) -> Any:
+        if not isinstance(b, dict):
+            return b
+        out = dict(b)
+        if isinstance(b.get("text"), str):
+            out["text"] = self.text(b["text"])
+        kind = b.get("type")
+        if kind == "tool_use" and "input" in b:
+            out["input"] = _mask_deep(b["input"], self)
+        elif kind == "tool_result" and "content" in b:
+            out["content"] = self.content(b["content"])
+        return out
 
 
 # ---------------------------------------------------------------- スキーマ検査
@@ -407,7 +423,8 @@ class LLMClient:
         api_key / auth_token: 省略時は環境変数 ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN。
         system: 既定のシステムプロンプト（文字列か content ブロックの list）。
         cache_system=True で cache_control を付ける。
-        masker: 指定すると、送る前に system と messages の text を伏せる。
+        masker: 指定すると、送る前に system と messages の本文を伏せる
+            （text、tool_use の input、tool_result の content）。
         record_path: 指定すると、受け取った応答を JSONL に追記する（FakeLLM.from_jsonl で再生できる）。
             **注意**: 応答の本文（モデルが返した文章・構造化出力）がファイルに残る。
             業務の文書を扱うときは置き場所に気をつけ、コミットしない。

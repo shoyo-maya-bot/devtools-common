@@ -6,6 +6,11 @@
 
 ### Added
 
+- `review_results`: AI レビュー結果（Front Matter + Markdown 表、BOM 可、`\|` と末尾 `\\|` のエスケープ）と判定の履歴
+  （history.jsonl、壊れた行は行番号付きで警告して飛ばす）の読み込み。office-review の `review_harness/results.py`・`history.py`
+  から移した（office-review と quality-analytics が同じ部品で読む）。`parse_review_file` / `load_review_dir` / `load_history` /
+  `resolve_history` / `ReviewItem` / `ResolvedHistory` / `fingerprint` / `normalize` / `front_matter` / `split_row` / `table_cells`
+
 - `excel`: Excel の読み取りの共通部品（extra `excel` で openpyxl を入れる）。doc-to-markdown と design-diff に重複していた処理をここへ移した。
   `render_value` / `render_cell`（表示形式どおりの文字列。doc-to-markdown の xlsx_numfmt から移動）、`MergeMap`（結合セルの索引）、
   `header_depth` / `header_names`（複数段の見出しの判定と「親/子」の列名。`header_rows` で段数を指定可）、`looks_numeric`、
@@ -29,6 +34,14 @@
   以前と同じに書くには `record_content="raw"` を渡す
 
 ### Fixed
+
+- `llm.Masker`: `tool_use` ブロックの `input` と `tool_result` ブロックの `content`（文字列・ブロックの list）を伏せていなかった。
+  `LLMClient(masker=...)` で送る本文の、ツールの引数と結果も伏せる
+- `config.load_dotenv`: BOM 付きの .env で先頭のキーが「\ufeffKEY」になっていた（utf-8-sig で読む）。
+  囲まない値の行末の ` # コメント` を値から除く（引用符の中の `#` と、`a#b` のように空白の無い `#` は値のまま）
+- `log.redact`: Anthropic の API キー（`sk-ant-…`）と `Authorization: Basic …` を伏せていなかった
+- `report.to_json_obj`: meta に null・list・dict・NaN が入ると、同梱の report.schema.json に合わない JSON を出していた。
+  スキーマに合わない値のキーは落として警告ログを出す。tool・title・指摘の各項目は文字列にする
 
 - `log.RedactFilter`: 引数をすべて文字列に変えてから整形していたため、`%d`・`%.1f` のログが TypeError になり、
   「--- Logging error ---」が出てログが消えていた（llm の費用ログ・httpclient の再試行ログ）。先に整形してから伏せ字にする

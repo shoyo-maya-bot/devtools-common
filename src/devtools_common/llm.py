@@ -4,14 +4,18 @@
 - 認証: 環境変数 ANTHROPIC_API_KEY（x-api-key）。
   ゲートウェイ向けに ANTHROPIC_AUTH_TOKEN（Authorization: Bearer）も使える
 - 再試行: 429 / 5xx（529 を含む）/ 接続エラー・タイムアウトを、`retry-after` を優先した指数バックオフ
-  （ゆらぎ付き・上限あり）で再試行する。
+  （ゆらぎ付き・上限あり）で再試行する。証明書の検証エラーなどの TLS の誤り・URL の誤りのように
+  再送しても直らない失敗は再試行せず、すぐ APIConnectionError にする。
+  `http.client.HTTPException`（応答の 1 行目が壊れている BadStatusLine 等）も APIConnectionError に包む。
   **注意**: Messages API の呼び出しはデータを変更しないため再送しても結果は壊れないが、サーバーに届いて処理された後に
   接続が切れた場合は、再送した分も課金される（二重課金のおそれ）。`max_retries=0` で再試行しない
 - `stop_reason == "max_tokens"`（出力が途中で切れた）は MaxTokensError
 - `complete_json(schema=...)`: ツール 1 つ（input_schema = 渡した JSON Schema）を強制して構造化出力を受け取り、検証する
   （jsonschema があれば使い、無ければ required・enum・type だけの簡易検査）
 - 呼び出しごとに 1 行のログ（モデル・トークン数・所要時間・request-id・費用の見積もり）を出す。本文はログに出さない
-- `Masker`: 送る前にメールアドレス・電話番号（全角・区切りなし・+81 を含む）と任意のパターンを伏せる
+- `Masker`: 送る前にメールアドレス・電話番号（全角・+81 を含む）と任意のパターンを伏せる。
+  区切りの無い数字だけの列は、携帯・IP 電話の形（070/080/090/050 + 8 桁）か、直前に「電話」「TEL」などの語が
+  あるときだけ電話番号とみなす（`ID 0123456789` のような注文番号は伏せない）
 - `FakeLLM`: 記録した応答（JSONL）を順に返す、テスト用のクライアント（通信しない）
 - `record_path`: 応答を JSONL に記録する。本文がファイルに残るので注意。
   `record_content` で伏せる（masker があれば既定で伏せる）・省く（"omit"）を選べる
@@ -25,6 +29,7 @@ import io
 import json
 import os
 import re
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -99,6 +104,23 @@ class APIStatusError(LLMError):
 
 class APIConnectionError(LLMError):
     """接続できなかった・タイムアウトした（再試行しても失敗した）."""
+
+
+def _is_permanent_connection_error(e: BaseException) -> bool:
+    """再送しても直らない接続の失敗か（再試行しない）.
+
+    - 証明書の検証エラー・TLS の取り決めの失敗（ssl.SSLError. ただし途中で切れた SSLEOFError 等は一時的とみなす）
+    - URL の誤り（URLError の reason が文字列: unknown url type 等）、http.client の InvalidURL など
+      （再試行するのは、応答の途中切れ IncompleteRead と応答の 1 行目が壊れた・切れた BadStatusLine だけ）
+    """
+    reason: object = e.reason if isinstance(e, urllib.error.URLError) else e
+    if isinstance(reason, str):
+        return True
+    if isinstance(reason, ssl.SSLError):
+        return not isinstance(reason, (ssl.SSLEOFError, ssl.SSLZeroReturnError, ssl.SSLWantReadError))
+    if isinstance(reason, http.client.HTTPException):
+        return not isinstance(reason, (http.client.IncompleteRead, http.client.BadStatusLine))
+    return False
 
 
 class MaxTokensError(LLMError):
@@ -257,11 +279,20 @@ _SEP = r"[\s\-‐‑–—―−－ー.．()（）]"
 _ALNUM = "A-Za-z0-9Ａ-Ｚａ-ｚ０-９"
 EMAIL_RE = re.compile(rf"[{_ALNUM}._%+\-．＿％＋－]+\s*[@＠]\s*[{_ALNUM}\-－]+(?:\s*[.．]\s*[{_ALNUM}\-－]+)+")
 PHONE_RE = re.compile(rf"(?<![0-9０-９])(?:[+＋]\s*[8８][1１]|[0０])(?:{_SEP}{{0,2}}{_D}){{8,11}}(?![0-9０-９])")
+# 区切りの無い 11 桁の携帯（070/080/090）・IP 電話（050）は、周りの語が無くても電話番号とみなす
+_MOBILE_RE = re.compile(r"[0０][5-9５-９][0０][0-9０-９]{8}")
+# 区切りの無い数字の列の直前（_CONTEXT_CHARS 文字以内）にこの語があれば電話番号とみなす
+_CONTEXT_CHARS = 12
+_PHONE_CONTEXT_RE = re.compile(
+    r"(?:電話|でんわ|携帯|連絡先|問い?合わ?せ先|ＴＥＬ|ＦＡＸ|tel|fax|phone|mobile|☎|℡)", re.IGNORECASE
+)
 
 
 @dataclass
 class Masker:
-    """送る前に伏せ字にする. メールアドレス・日本の電話番号（全角・区切りなし・+81 を含む）は常に伏せる.
+    """送る前に伏せ字にする. メールアドレス・日本の電話番号（全角・+81 を含む）は常に伏せる.
+
+    区切りの無い数字だけの列は、携帯・IP 電話の形か直前に「電話」「TEL」などの語があるときだけ伏せる（README 参照）。
 
     words: そのまま伏せる語（社名・システム名など）。patterns: 伏せる正規表現。replacement: 置き換える文字列。
     """
@@ -279,7 +310,15 @@ class Masker:
         digits = len(re.findall(_D, s))
         if s[0] in "+＋":
             return self.replacement if 11 <= digits <= 12 else s  # 81 + 9〜10 桁
-        return self.replacement if 10 <= digits <= 11 else s
+        if not 10 <= digits <= 11:
+            return s
+        if digits != len(s):  # 区切り（ハイフン・空白・括弧など）付き
+            return self.replacement
+        # 区切りの無い数字だけの列: 注文番号・ID と区別できないので、携帯・IP 電話の形か、直前の語で判定する
+        before = m.string[max(0, m.start() - _CONTEXT_CHARS) : m.start()]
+        if _MOBILE_RE.fullmatch(s) or _PHONE_CONTEXT_RE.search(before):
+            return self.replacement
+        return s
 
     def text(self, s: str) -> str:
         if not s:
@@ -537,8 +576,15 @@ class LLMClient:
         """構造化出力. スキーマを input_schema にしたツールを 1 つだけ渡して使わせ、その入力を検証して返す.
 
         結果がスキーマに合わなければ SchemaValidationError（jsonschema があれば完全な検証、無ければ簡易検査）。
-        kw は complete() と同じ（system, max_tokens 等）。
+        kw は complete() と同じ（system, max_tokens 等）。ただし tools と tool_choice はこのメソッドが決めるので、
+        渡すと ValueError（自分のツールを使うときは complete() を呼ぶ）。
         """
+        reserved = sorted(k for k in ("tools", "tool_choice") if k in kw)
+        if reserved:
+            raise ValueError(
+                f"complete_json() does not accept {', '.join(reserved)}: it sends exactly one tool built from schema= "
+                "and forces it. To pass your own tools, call complete() instead"
+            )
         tool = {"name": name, "description": description, "input_schema": dict(schema)}
         comp = self.complete(messages, tools=[tool], tool_choice={"type": "tool", "name": name}, **kw)
         for block in comp.content:
@@ -623,10 +669,13 @@ class LLMClient:
                     raise APIStatusError(e.code, err_type, message, _header(hdrs, "request-id")) from e
                 delay = self._delay(attempt, _header(hdrs, "retry-after"))
                 log.info("llm: HTTP %d %s, retrying in %.1fs (attempt %d)", e.code, err_type, delay, attempt + 1)
-            # 接続拒否・切断・タイムアウト・本文の途中切れ（IncompleteRead は OSError ではない）
-            except (urllib.error.URLError, OSError, http.client.IncompleteRead) as e:
-                if last:
-                    raise APIConnectionError(f"connection error: {getattr(e, 'reason', e)}") from e
+            # 接続拒否・切断・タイムアウト・本文の途中切れ・壊れた応答（HTTPException は OSError ではない）
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+                permanent = _is_permanent_connection_error(e)
+                if last or permanent:
+                    reason = getattr(e, "reason", None) or e
+                    kind = "permanent " if permanent else ""
+                    raise APIConnectionError(f"{kind}connection error: {type(e).__name__}: {reason}") from e
                 delay = self._delay(attempt, None)
                 log.info(
                     "llm: connection error (%s), retrying in %.1fs (attempt %d)", type(e).__name__, delay, attempt + 1

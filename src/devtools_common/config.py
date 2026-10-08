@@ -7,12 +7,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from .cli import UsageError
+
+_INLINE_COMMENT = re.compile(r"\s#")
+# 引用符で囲んだ値（閉じ引用符の後ろは空白と「# コメント」だけ）。閉じ引用符が無ければ囲んでいないものとして読む
+_QUOTED = re.compile(r"""^(["'])(.*?)\1\s*(?:#.*)?$""")
 
 
 def load_structured(path: str | Path) -> Any:
@@ -30,24 +35,40 @@ def load_structured(path: str | Path) -> Any:
 
 
 def load_dotenv(path: str | Path = ".env", *, override: bool = False) -> dict[str, str]:
-    """KEY=VALUE 形式の .env を読み、os.environ に設定する（外部依存なし）."""
+    """KEY=VALUE 形式の .env を読み、os.environ に設定する（外部依存なし）.
+
+    - 文字コードは UTF-8（BOM 付きでもよい。メモ帳で保存した .env の先頭のキーが壊れないように）
+    - `#` で始まる行と空行は飛ばす。`export KEY=VALUE` も読む
+    - 値を `"…"` か `'…'` で囲むと、その中身が値（中の `#` はそのまま）。閉じ引用符の後ろには「# コメント」だけ書ける
+    - 囲まない値は、空白の後ろの `#` から行末までをコメントとして除く（`a#b` の `#` は値の一部）
+    """
     p = Path(path)
     loaded: dict[str, str] = {}
     if not p.is_file():
         return loaded
-    for raw in p.read_text(encoding="utf-8").splitlines():
+    for raw in p.read_text(encoding="utf-8-sig").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
         key = key.removeprefix("export ").strip()
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-            value = value[1:-1]
+        value = _dotenv_value(value)
         loaded[key] = value
         if override or key not in os.environ:
             os.environ[key] = value
     return loaded
+
+
+def _dotenv_value(value: str) -> str:
+    """.env の値（= の後ろ）: 引用符で囲んだ値は中身、囲まない値は行末の「 # コメント」を除いたもの."""
+    stripped = value.strip()
+    if value[:1].isspace() and stripped.startswith("#"):  # KEY=  # コメント（値なし）
+        return ""
+    m = _QUOTED.match(stripped)
+    if m:
+        return m.group(2)
+    m = _INLINE_COMMENT.search(stripped)
+    return stripped[: m.start()].rstrip() if m else stripped
 
 
 def require_env(name: str) -> str:

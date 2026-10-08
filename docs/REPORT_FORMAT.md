@@ -59,7 +59,7 @@ devtools 系のすべてのツール（`doc2md` / `fieldcheck` / テンプレー
 | `tool` | string | CLI 名（`doc2md` / `fieldcheck` …） |
 | `tool_version` | string | ツールの版 |
 | `title` | string | レポートの表題（表示用） |
-| `meta` | object | 実行情報。キーはツールごと（§5）。値は文字列・数値・真偽値のみ |
+| `meta` | object | 実行情報。キーはツールごと（§5）。値は文字列・数値・真偽値のみ（`to_json_obj` はそれ以外の値（null・配列・オブジェクト・NaN）のキーを落として警告する） |
 | `summary` | object | 重大度ごとの件数 `{error, warning, info}`（整数、必ず 3 キーとも出る） |
 | `findings` | array | 指摘の一覧（0 件なら空配列） |
 

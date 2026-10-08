@@ -15,7 +15,10 @@ _SECRET_PATTERNS = [
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}"),
     re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"sk-ant-[A-Za-z0-9_\-]{16,}"),  # Anthropic の API キー（sk-ant-api03-… / sk-ant-admin01-…）
     re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-]{16,}"),
+    # Authorization / Proxy-Authorization: Basic <base64(ユーザー:パスワード)>（短くても伏せる）
+    re.compile(r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?basic\s+)[A-Za-z0-9+/=._\-]+"),
     re.compile(r"(?i)((?:password|passwd|secret|token|api[_-]?key)\s*[:=]\s*)\S+"),
 ]
 

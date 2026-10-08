@@ -83,7 +83,11 @@ def neutralize_formula(value: Any) -> Any:
 
 
 def _md_cell(v: str) -> str:
-    return str(v).replace("|", "\\|").replace("\n", "<br>")
+    """Markdown（GFM）の表のセル. `\\` → `\\\\`、`|` → `\\|`、改行 → `<br>`.
+
+    `\\` を先にエスケープしないと、値の `a\\|b` が `a\\\\|b`（文字の `\\` の後ろの区切り）になり列がずれる。
+    """
+    return str(v).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
 
 
 def report_schema() -> dict[str, Any]:

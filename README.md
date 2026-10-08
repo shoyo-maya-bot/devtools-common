@@ -159,24 +159,38 @@ from devtools_common.review_results import (
 
 items, problems = parse_review_file("reviews/2026-10-02_order-api_result.md", doc_types=["api", "db"])
 items = load_review_dir("reviews")  # *_result.md をファイル名順に。形式の誤りの行は飛ばす
-records = load_history("data/history.jsonl", warn=print)  # 壊れた行は「警告: history.jsonl:<行番号> …」を warn に渡して飛ばす
+# 壊れた行は「警告: history.jsonl:<行番号> …」を warn に渡して飛ばす
+records = load_history("data/history.jsonl", warn=print)
 resolved = resolve_history(records, items)
 decision = resolved.decisions.get(items[0].fingerprint, {}).get("decision")  # "adopted" / "rejected" / None
+```
+
+指紋 v2（ロール・観点を含む。office-review の harness が `fingerprint_v2` として書き、結び付けに使う値）で引くとき:
+
+```python
+from devtools_common.review_results import fingerprint_v2, resolve_history_v2
+
+resolved = resolve_history_v2(records, items)  # decisions のキーは ReviewItem.fingerprint_v2
+decision = resolved.decisions.get(items[0].fingerprint_v2, {}).get("decision")
+fp = fingerprint_v2("inputs/api/order-api.md", "3. 入力", "必須項目が決まっていない", "tester", "API-003")
 ```
 
 | 名前 | シグネチャ・戻り値 | 決まりごと |
 |---|---|---|
 | `parse_review_file` | `(path: str \| Path, *, doc_types: Collection[str] \| None = None) -> tuple[list[ReviewItem], list[Finding]]` | UTF-8（BOM 可）。Front Matter の `target`・`type`・`reviewed_at` が無い、`type` が `doc_types` に無い（渡したときだけ）、表が無い、列数違い・No が数字でない行は `Finding`（`lint.meta` / `lint.table`、error）にして、その行は飛ばす |
 | `load_review_dir` | `(reviews_dir: str \| Path, pattern: str = "*_result.md") -> list[ReviewItem]` | ファイル名順に `parse_review_file` した指摘をつなげる（形式の誤りは返さない） |
-| `load_history` | `(path: str \| Path, warn: Callable[[str], Any] \| None = None) -> list[dict[str, Any]]` | 1 行 1 判定、書いた順。ファイルが無ければ `[]`。BOM 可。JSON でない・オブジェクトでない・`decision`（adopted / rejected）か `check_id` が無い行は、行番号付きで警告して飛ばす（`warn` の既定は標準エラー） |
+| `load_history` | `(path: str \| Path, warn: Callable[[str], Any] \| None = None) -> list[dict[str, Any]]` | 1 行 1 判定、書いた順。ファイルが無ければ `[]`。BOM 可。JSON でない・オブジェクトでない・`decision`（adopted / rejected）か `check_id` が無い・`decision` / `check_id` / `key` / `fingerprint` / `fingerprint_v2` が文字列でない・`fingerprint_v2` も `fingerprint` も `key` も無い（空）行は、行番号付きで警告して飛ばす（`warn` の既定は標準エラー） |
 | `resolve_history` | `(records: Iterable[dict[str, Any]], items: Iterable[ReviewItem]) -> ResolvedHistory` | 同じ指紋は後の行が勝つ。`fingerprint` の無い旧形式の行は、`key`（ファイル名#No）の指摘の本文と `check_id` が一致するときだけ結び付け、違えば `orphans` |
+| `resolve_history_v2` | `(records: Iterable[dict[str, Any]], items: Iterable[ReviewItem]) -> ResolvedHistory` | 指紋 v2 で結び付ける（office-review の `history.resolve` と同じ規則）。`fingerprint_v2` がある行はその値。`fingerprint`（旧指紋）だけの行は、旧指紋が同じいまの指摘の v2 に引き継ぐ（複数あれば行の `role`・`check_id` が一致して 1 つに決まるときだけ。決まらなければ旧指紋のまま残す）。どちらも無い行は `resolve_history` と同じ（`key` で一致するときだけ、違えば `orphans`）。`decisions` のキーと各判定の `fingerprint` は結び付けた指紋 |
 | `ResolvedHistory` | `decisions: dict[str, dict]`（指紋 → 最新の判定）、`orphans: list[dict]`、`all_records() -> dict[str, dict]` | `all_records()` は集計用（孤立した旧形式は `legacy:<key>`） |
-| `ReviewItem` | dataclass: `file, target, doc_type, reviewed_at: str, no: int, check_id, severity, role, location, finding, basis, invalid_check: str`、プロパティ `key: str`（`ファイル名#No`）・`fingerprint: str`（`fp:` + 16 桁） | `reviewed_at` は日付なら ISO 形式の文字列 |
+| `ReviewItem` | dataclass: `file, target, doc_type, reviewed_at: str, no: int, check_id, severity, role, location, finding, basis, invalid_check: str`、プロパティ `key: str`（`ファイル名#No`）・`fingerprint: str`（`fp:` + 16 桁、v1）・`fingerprint_v1: str`（常に v1。サブクラスが `fingerprint` を替えても変わらない）・`fingerprint_v2: str`（v2） | `reviewed_at` は日付なら ISO 形式の文字列 |
 | `fingerprint` | `(target: str, location: str, finding: str) -> str` | 指摘の指紋。`target` が空ならファイル名を渡す。`normalize` した値の SHA-256 の先頭 16 桁 |
+| `fingerprint_v2` | `(target: str, location: str, finding: str, role: str, check_id: str) -> str` | 指紋 v2。`fingerprint` の 3 つにロールと観点を加える（office-review の `review_harness.results.fingerprint` と同じ値） |
 | `normalize` | `(text: str) -> str` | NFKC、空白の連続を 1 つに、前後の空白を除く、英字を小文字に |
 | `front_matter` | `(text: str) -> dict[str, Any]` | 先頭の `---` 〜 `---` の YAML。無い・読めない・mapping でなければ `{}`（BOM は読むときに外す） |
 | `split_row` | `(line: str) -> list[str]` | 表の 1 行をセルに分ける（エスケープはそのまま。下の「表のエスケープ」） |
 | `table_cells` | `(line: str) -> list[str]` | `split_row` の各セルの前後の空白を除き、エスケープした縦棒だけを戻す（下の「表のエスケープ」） |
+| `unescape_cell` | `(cell: str) -> str` | セルのエスケープ（二重のバックスラッシュ、エスケープした縦棒）を戻す。`devtools_common.report` の Markdown 出力の逆。`table_cells` は指紋の互換のためエスケープした縦棒だけを戻す |
 | 定数 | `COLUMNS`（表の列名 8 つ）、`REQUIRED_META`、`HISTORY_DECISIONS`、`HISTORY_REQUIRED_KEYS` | |
 
 表のエスケープ（office-review の実装と同じ）:

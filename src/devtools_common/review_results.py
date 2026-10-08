@@ -23,9 +23,16 @@ office-review の review_harness/results.py・history.py（と precheck.front_ma
 
 history.jsonl の形式（1 行 1 判定、後の行が有効）:
 
-    {"key": "<ファイル名>#<No>", "fingerprint": "fp:…", "decision": "adopted" | "rejected", "check_id": "…", ...}
+    {"key": "<ファイル名>#<No>", "fingerprint": "fp:…", "fingerprint_v2": "fp:…",
+     "decision": "adopted" | "rejected", "check_id": "…", "role": "…", ...}
 
 旧形式の行（fingerprint なし）は、その No にいまある指摘が同じとき（本文と check_id が一致）だけ結び付ける。
+
+指紋は 2 種類:
+- fingerprint（旧指紋・v1）: 対象・箇所・指摘の本文から作る
+  （`fingerprint()`、`ReviewItem.fingerprint` / `fingerprint_v1`）
+- fingerprint_v2: v1 にロールと観点（check_id）を加えたもの（`fingerprint_v2()`、`ReviewItem.fingerprint_v2`）。
+  office-review の harness が history.jsonl に書き、結び付けに使う。`resolve_history_v2()` は v2 で結び付ける
 """
 
 from __future__ import annotations
@@ -53,20 +60,25 @@ __all__ = [
     "ResolvedHistory",
     "ReviewItem",
     "fingerprint",
+    "fingerprint_v2",
     "front_matter",
     "load_history",
     "load_review_dir",
     "normalize",
     "parse_review_file",
     "resolve_history",
+    "resolve_history_v2",
     "split_row",
     "table_cells",
+    "unescape_cell",
 ]
 
 COLUMNS = ["No", "check_id", "重要度", "ロール", "箇所", "指摘", "根拠", "無効となるケースの確認"]
 REQUIRED_META = ["target", "type", "reviewed_at"]
 HISTORY_DECISIONS = frozenset({"adopted", "rejected"})
 HISTORY_REQUIRED_KEYS = ("decision", "check_id")
+# 判定をどの指摘に結び付けるかの識別子（どれか 1 つが要る。あれば文字列）
+HISTORY_ID_KEYS = ("fingerprint_v2", "fingerprint", "key")
 
 
 # ---------------------------------------------------------------- 指紋
@@ -80,6 +92,16 @@ def normalize(text: str) -> str:
 def fingerprint(target: str, location: str, finding: str) -> str:
     """指摘の指紋（"fp:" + 16 桁の 16 進）. 対象（空ならファイル名を渡す）・箇所・指摘の本文から作る."""
     parts = [normalize(target), normalize(location), normalize(finding)]
+    return "fp:" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def fingerprint_v2(target: str, location: str, finding: str, role: str, check_id: str) -> str:
+    """指摘の指紋 v2（"fp:" + 16 桁の 16 進）. 対象・箇所・指摘の本文に、ロールと観点（check_id）を加えて作る.
+
+    別のロール・観点が同じ箇所に同じ文の指摘を出しても、別の指摘として判定できる。
+    office-review の review_harness.results.fingerprint と同じ値（history.jsonl の fingerprint_v2）。
+    """
+    parts = [normalize(target), normalize(location), normalize(finding), normalize(role), normalize(check_id)]
     return "fp:" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
@@ -112,6 +134,16 @@ class ReviewItem:
     def fingerprint(self) -> str:
         """指摘の指紋. 対象・箇所・指摘の本文から作り、No やファイル名（レビュー日）が変わっても同じ値になる."""
         return fingerprint(self.target or self.file, self.location, self.finding)
+
+    @property
+    def fingerprint_v1(self) -> str:
+        """旧指紋（v1. 対象・箇所・指摘の本文）. サブクラスが fingerprint を v2 に替えても、常に v1 を返す."""
+        return fingerprint(self.target or self.file, self.location, self.finding)
+
+    @property
+    def fingerprint_v2(self) -> str:
+        """指紋 v2（対象・箇所・指摘の本文・ロール・観点）. history.jsonl の fingerprint_v2 と同じ値."""
+        return fingerprint_v2(self.target or self.file, self.location, self.finding, self.role, self.check_id)
 
 
 # ---------------------------------------------------------------- Front Matter・表
@@ -176,6 +208,24 @@ def _escaped_at_end(s: str) -> bool:
 def table_cells(line: str) -> list[str]:
     """レビュー結果の表の 1 行 → セルの文字（前後の空白を除き、`\\|` だけを `|` に戻す）."""
     return [c.strip().replace("\\|", "|") for c in split_row(line)]
+
+
+def unescape_cell(cell: str) -> str:
+    """表のセル（split_row の 1 セル）のエスケープを戻す: `\\\\` → `\\`、`\\|` → `|`. ほかの `\\x` と `<br>` はそのまま.
+
+    devtools_common.report の Markdown 出力（`\\` と `|` をエスケープ）の逆。table_cells は指紋の互換のため
+    `\\|` だけを戻すので、値をそのまま取り出したいときはこちらを使う。
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(cell):
+        if cell[i] == "\\" and i + 1 < len(cell) and cell[i + 1] in "\\|":
+            out.append(cell[i + 1])
+            i += 2
+            continue
+        out.append(cell[i])
+        i += 1
+    return "".join(out)
 
 
 # ---------------------------------------------------------------- レビュー結果ファイル
@@ -252,7 +302,9 @@ def load_review_dir(reviews_dir: str | Path, pattern: str = "*_result.md") -> li
 def load_history(path: str | Path, warn: Callable[[str], Any] | None = None) -> list[dict[str, Any]]:
     """history.jsonl の全行（書いた順）. ファイルが無ければ空.
 
-    壊れた行（JSON として読めない・オブジェクトでない・decision（adopted / rejected）や check_id が無い）は、
+    壊れた行（JSON として読めない・オブジェクトでない・decision（adopted / rejected）や check_id が無い・
+    decision / check_id / key / fingerprint / fingerprint_v2 が文字列でない・
+    fingerprint_v2 も fingerprint も key も無い）は、
     「警告: history.jsonl:<行番号> を飛ばしました（理由）」を warn に渡して飛ばす
     （1 行の破損で全体が止まらないように）。
     warn の既定は標準エラーへの出力。UTF-8（BOM 付きでもよい）。
@@ -270,15 +322,26 @@ def load_history(path: str | Path, warn: Callable[[str], Any] | None = None) -> 
         except json.JSONDecodeError as e:
             warn(f"警告: {path.name}:{no} を飛ばしました（JSON として読めません: {e.msg}）")
             continue
-        if (
-            not isinstance(rec, dict)
-            or any(k not in rec for k in HISTORY_REQUIRED_KEYS)
-            or rec["decision"] not in HISTORY_DECISIONS
-        ):
-            warn(f"警告: {path.name}:{no} を飛ばしました（decision（adopted / rejected）と check_id が必要です）")
+        reason = _history_problem(rec)
+        if reason:
+            warn(f"警告: {path.name}:{no} を飛ばしました（{reason}）")
             continue
         out.append(rec)
     return out
+
+
+def _history_problem(rec: Any) -> str | None:
+    """history.jsonl の 1 行（JSON を読んだ値）が使えない理由. 使えれば None."""
+    if not isinstance(rec, dict) or any(k not in rec for k in HISTORY_REQUIRED_KEYS):
+        return "decision（adopted / rejected）と check_id が必要です"
+    bad = [k for k in (*HISTORY_REQUIRED_KEYS, *HISTORY_ID_KEYS) if k in rec and not isinstance(rec[k], str)]
+    if bad:
+        return "、".join(bad) + " が文字列ではありません"
+    if rec["decision"] not in HISTORY_DECISIONS:
+        return "decision（adopted / rejected）と check_id が必要です"
+    if not any(rec.get(k) for k in HISTORY_ID_KEYS):
+        return "fingerprint_v2・fingerprint・key のどれかが必要です"
+    return None
 
 
 @dataclass
@@ -291,7 +354,7 @@ class ResolvedHistory:
     def all_records(self) -> dict[str, dict[str, Any]]:
         """集計用: 指紋ごとの最新の判定 + 孤立した旧形式の判定（旧 key ごとに最新）."""
         out = dict(self.decisions)
-        out.update({"legacy:" + r["key"]: r for r in self.orphans})
+        out.update({"legacy:" + str(r.get("key", "")): r for r in self.orphans})
         return out
 
 
@@ -306,7 +369,51 @@ def resolve_history(records: Iterable[dict[str, Any]], items: Iterable[ReviewIte
     - fingerprint がある行: その指紋の判定
     - 旧形式の行（fingerprint なし）: key の No にいまある指摘が同じ指摘のときだけ、その指紋に引き継ぐ。
       違う指摘になっていれば（再レビューで No がずれた等）孤立した判定（orphans）として返す
+
+    指紋は items の `fingerprint`（ReviewItem では v1）。v2 で結び付けるときは resolve_history_v2。
     """
+    return _resolve(records, items, lambda i: i.fingerprint)
+
+
+def resolve_history_v2(records: Iterable[dict[str, Any]], items: Iterable[ReviewItem]) -> ResolvedHistory:
+    """判定を指紋 v2（fingerprint_v2）で引けるようにする（office-review の history.resolve と同じ規則）.
+
+    戻り値の decisions のキーは `ReviewItem.fingerprint_v2`。同じ指紋は後に書いたものが勝つ。
+
+    - fingerprint_v2 がある行: その指紋の判定
+    - fingerprint（旧指紋）だけの行: 旧指紋が同じいまの指摘の v2 に引き継ぐ（複数あれば、行の role と check_id が
+      一致する指摘が 1 つに決まるときだけ）。決められなければ旧指紋のまま残す（集計には数える）
+    - どちらも無い行（もっと古い形式。key = ファイル名#No）: key の No にいまある指摘が
+      同じ指摘（本文と check_id が一致）のときだけ引き継ぎ、違えば孤立した判定（orphans）として返す
+
+    返す判定の fingerprint は、結び付けた指紋（v2、または引き継げなかった旧指紋）に置き換える。
+    """
+    items = list(items)
+    by_v1: dict[str, list[ReviewItem]] = {}
+    for it in items:
+        by_v1.setdefault(it.fingerprint_v1, []).append(it)
+    upgraded: list[dict[str, Any]] = []
+    for rec in records:
+        if not rec.get("fingerprint_v2") and rec.get("fingerprint"):
+            fp = _upgrade_v1(rec, by_v1.get(rec["fingerprint"], []))
+            rec = {**rec, "fingerprint": fp} if fp else rec
+        elif rec.get("fingerprint_v2"):
+            rec = {**rec, "fingerprint": rec["fingerprint_v2"]}
+        upgraded.append(rec)
+    return _resolve(upgraded, items, lambda i: i.fingerprint_v2)
+
+
+def _upgrade_v1(rec: dict[str, Any], candidates: list[ReviewItem]) -> str | None:
+    """旧指紋の行 → いまの指摘の v2. 旧指紋が同じ指摘が無い・1 つに決められないときは None."""
+    if len(candidates) == 1:
+        return candidates[0].fingerprint_v2
+    same = {c.fingerprint_v2 for c in candidates if c.role == rec.get("role") and c.check_id == rec.get("check_id")}
+    return same.pop() if len(same) == 1 else None
+
+
+def _resolve(
+    records: Iterable[dict[str, Any]], items: Iterable[ReviewItem], fp_of: Callable[[ReviewItem], str]
+) -> ResolvedHistory:
     by_key = {i.key: i for i in items}
     res = ResolvedHistory()
     orphans: dict[str, dict[str, Any]] = {}
@@ -317,7 +424,7 @@ def resolve_history(records: Iterable[dict[str, Any]], items: Iterable[ReviewIte
             if item is None or not _legacy_matches(rec, item):
                 orphans[rec.get("key", "")] = rec
                 continue
-            fp = item.fingerprint
+            fp = fp_of(item)
             orphans.pop(rec.get("key", ""), None)
         res.decisions[fp] = {**rec, "fingerprint": fp}
     res.orphans = list(orphans.values())

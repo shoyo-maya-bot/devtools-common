@@ -10,6 +10,7 @@
 | `0%` / `0.0%` | 0.125 | `13%` / `12.5%` |
 | `"¥"#,##0` / `#,##0"円"` | 1500 | `¥1,500` / `1,500円` |
 | `#,##0;[Red]-#,##0` / `#,##0_);(#,##0)` | -1500 | `-1,500` / `(1,500)` |
+| `0;;` / `;;;`（空の部は表示しない） | -5・0 / 何でも | `` / `` |
 | `@`（文字列） | `007` | `007` |
 | `yyyy/mm/dd` / `m/d` / `yyyy"年"m"月"d"日"` | 2026-04-05 | `2026/04/05` / `4/5` / `2026年4月5日` |
 | `h:mm` / `hh:mm:ss` / `h:mm AM/PM` | 9:07:03 | `9:07` / `09:07:03` / `9:07 AM` |
@@ -191,7 +192,11 @@ def _tokenize(sec: str) -> list[tuple[str, str]]:
 # 文字列・数値
 # ---------------------------------------------------------------------------
 def _render_text(v: str, sections: list[str]) -> str:
-    sec = sections[3] if len(sections) >= 4 else sections[0] if len(sections) == 1 else ""
+    if len(sections) >= 4:
+        # 文字列の部（4 つ目）があれば、@ が無くてもその部の見た目にする（空なら非表示 = `;;;` で隠す書き方）
+        toks = _tokenize(sections[3])
+        return "".join(v if k == "text" else t for k, t in toks if k in ("text", "lit"))
+    sec = sections[0] if len(sections) == 1 else ""
     toks = _tokenize(sec) if "@" in sec else []
     if not any(k == "text" for k, _ in toks):
         return v
@@ -200,14 +205,17 @@ def _render_text(v: str, sections: list[str]) -> str:
 
 def _render_number(v: float, sections: list[str]) -> str:
     sign = ""
-    if v < 0 and len(sections) >= 2 and sections[1] != "":
+    # 部（; で区切った各部分）が空なら、Excel はその値を表示しない（`0;;` の負数・0、`;;;` は全部を隠す）
+    if v < 0 and len(sections) >= 2:
         sec, v = sections[1], -v
-    elif v == 0 and len(sections) >= 3 and sections[2] != "":
+    elif v == 0 and len(sections) >= 3:
         sec = sections[2]
     else:
         sec = sections[0]
         if v < 0:
             sign, v = "-", -v
+    if sec == "":
+        return ""
     toks = _tokenize(sec)
     kinds = {k for k, _ in toks}
     if kinds & {"date", "ampm", "gannen"}:

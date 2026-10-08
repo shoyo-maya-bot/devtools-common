@@ -1,0 +1,8 @@
+{"key": "2026-10-01_order-api_result.md#9", "fingerprint": "fp:39934c2fd35a2eab", "fingerprint_v2": "fp:961f9463989987c2", "decision": "rejected", "check_id": "ALL-001", "role": "spec_manager"}
+{"key": "2026-10-01_order-api_result.md#2", "fingerprint": "fp:ab1ca89769a89866", "decision": "adopted", "check_id": "API-003", "role": "tester"}
+{"key": "2026-10-01_order-api_result.md#7", "fingerprint": "fp:ab1ca89769a89866", "decision": "rejected", "check_id": "API-009", "role": "dba"}
+{"key": "2026-10-01_order-api_result.md#4", "fingerprint": "fp:161cef35ef3ea64b", "decision": "rejected", "check_id": "API-007"}
+{"key": "2026-10-05_order-api_result.md#1", "decision": "adopted", "check_id": "API-002", "finding": "必須項目が決まっていない"}
+{"key": "2026-10-05_order-api_result.md#3", "decision": "adopted", "check_id": "ALL-001", "finding": "別の指摘だったもの"}
+{"key": "2026-09-30_old_result.md#1", "fingerprint": "fp:0000000000000000", "decision": "adopted", "check_id": "DB-001"}
+{"key": "2026-10-06_order-api_result.md#3", "fingerprint": "fp:39934c2fd35a2eab", "fingerprint_v2": "fp:961f9463989987c2", "decision": "adopted", "check_id": "ALL-001", "role": "spec_manager"}

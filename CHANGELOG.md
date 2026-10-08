@@ -6,6 +6,11 @@
 
 ### Added
 
+- `review_results`: 指紋 v2（対象・箇所・本文・ロール・check_id）。`fingerprint_v2()`、`ReviewItem.fingerprint_v2` /
+  `ReviewItem.fingerprint_v1`、`resolve_history_v2()`（office-review の `history.resolve` と同じ規則で v2 に結び付ける）。
+  既存の `fingerprint` / `ReviewItem.fingerprint` / `resolve_history` の値と振る舞いは変えない
+- `review_results.unescape_cell()`: 表のセルの `\\` と `\|` のエスケープを戻す（`report` の Markdown 出力の逆）
+
 - `review_results`: AI レビュー結果（Front Matter + Markdown 表、BOM 可、`\|` と末尾 `\\|` のエスケープ）と判定の履歴
   （history.jsonl、壊れた行は行番号付きで警告して飛ばす）の読み込み。office-review の `review_harness/results.py`・`history.py`
   から移した（office-review と quality-analytics が同じ部品で読む）。`parse_review_file` / `load_review_dir` / `load_history` /
@@ -25,6 +30,13 @@
 - `llm.LLMClient`: `record_content` 引数（`"auto"` / `"masked"` / `"omit"` / `"raw"`）。`record_path` に書く本文を伏せる・省く
 - CI: Windows（windows-latest）でもテストを流す。`constraints.txt`（`.github/workflows/deps-lock.yml` が作る）で CI の依存の版を固定
 - CI: `ci.yml`・`release.yml` で `secrets: inherit` をやめた（非公開の依存が無いので、共通ワークフローにシークレットを渡さない）
+
+### Fixed
+
+- `review_results.load_history`: `decision`・`check_id`・`key`・`fingerprint`・`fingerprint_v2` が文字列でない行（list など）で
+  TypeError になっていた → 警告して飛ばす。`fingerprint_v2`・`fingerprint`・`key` がどれも無い行で `resolve_history` →
+  `all_records()` が KeyError になっていた → 読み込み時に壊れた行として警告して飛ばす（`all_records()` も key の無い行で落ちない）
+- `report`: Markdown の表のセルで `\` をエスケープしていなかった（値 `a\|b` が列ずれになる）→ `\` も `\\` にする
 
 ### Changed
 

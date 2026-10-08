@@ -1,0 +1,124 @@
+{
+ "all_records": {
+  "fp:0000000000000000": {
+   "check_id": "DB-001",
+   "decision": "adopted",
+   "fingerprint": "fp:0000000000000000",
+   "key": "2026-09-30_old_result.md#1"
+  },
+  "fp:09a4fe42c343ece2": {
+   "check_id": "API-007",
+   "decision": "rejected",
+   "fingerprint": "fp:09a4fe42c343ece2",
+   "key": "2026-10-01_order-api_result.md#4"
+  },
+  "fp:13fe25e6d57d6d3d": {
+   "check_id": "API-003",
+   "decision": "adopted",
+   "fingerprint": "fp:13fe25e6d57d6d3d",
+   "key": "2026-10-01_order-api_result.md#2",
+   "role": "tester"
+  },
+  "fp:32ca9b01327a26c6": {
+   "check_id": "API-002",
+   "decision": "adopted",
+   "finding": "必須項目が決まっていない",
+   "fingerprint": "fp:32ca9b01327a26c6",
+   "key": "2026-10-05_order-api_result.md#1"
+  },
+  "fp:961f9463989987c2": {
+   "check_id": "ALL-001",
+   "decision": "adopted",
+   "fingerprint": "fp:961f9463989987c2",
+   "fingerprint_v2": "fp:961f9463989987c2",
+   "key": "2026-10-06_order-api_result.md#3",
+   "role": "spec_manager"
+  },
+  "fp:ab1ca89769a89866": {
+   "check_id": "API-009",
+   "decision": "rejected",
+   "fingerprint": "fp:ab1ca89769a89866",
+   "key": "2026-10-01_order-api_result.md#7",
+   "role": "dba"
+  },
+  "legacy:2026-10-05_order-api_result.md#3": {
+   "check_id": "ALL-001",
+   "decision": "adopted",
+   "finding": "別の指摘だったもの",
+   "key": "2026-10-05_order-api_result.md#3"
+  }
+ },
+ "decisions": {
+  "fp:0000000000000000": {
+   "check_id": "DB-001",
+   "decision": "adopted",
+   "fingerprint": "fp:0000000000000000",
+   "key": "2026-09-30_old_result.md#1"
+  },
+  "fp:09a4fe42c343ece2": {
+   "check_id": "API-007",
+   "decision": "rejected",
+   "fingerprint": "fp:09a4fe42c343ece2",
+   "key": "2026-10-01_order-api_result.md#4"
+  },
+  "fp:13fe25e6d57d6d3d": {
+   "check_id": "API-003",
+   "decision": "adopted",
+   "fingerprint": "fp:13fe25e6d57d6d3d",
+   "key": "2026-10-01_order-api_result.md#2",
+   "role": "tester"
+  },
+  "fp:32ca9b01327a26c6": {
+   "check_id": "API-002",
+   "decision": "adopted",
+   "finding": "必須項目が決まっていない",
+   "fingerprint": "fp:32ca9b01327a26c6",
+   "key": "2026-10-05_order-api_result.md#1"
+  },
+  "fp:961f9463989987c2": {
+   "check_id": "ALL-001",
+   "decision": "adopted",
+   "fingerprint": "fp:961f9463989987c2",
+   "fingerprint_v2": "fp:961f9463989987c2",
+   "key": "2026-10-06_order-api_result.md#3",
+   "role": "spec_manager"
+  },
+  "fp:ab1ca89769a89866": {
+   "check_id": "API-009",
+   "decision": "rejected",
+   "fingerprint": "fp:ab1ca89769a89866",
+   "key": "2026-10-01_order-api_result.md#7",
+   "role": "dba"
+  }
+ },
+ "items": [
+  {
+   "fingerprint_v1": "fp:ab1ca89769a89866",
+   "fingerprint_v2": "fp:32ca9b01327a26c6",
+   "key": "2026-10-05_order-api_result.md#1"
+  },
+  {
+   "fingerprint_v1": "fp:ab1ca89769a89866",
+   "fingerprint_v2": "fp:13fe25e6d57d6d3d",
+   "key": "2026-10-05_order-api_result.md#2"
+  },
+  {
+   "fingerprint_v1": "fp:39934c2fd35a2eab",
+   "fingerprint_v2": "fp:961f9463989987c2",
+   "key": "2026-10-05_order-api_result.md#3"
+  },
+  {
+   "fingerprint_v1": "fp:161cef35ef3ea64b",
+   "fingerprint_v2": "fp:09a4fe42c343ece2",
+   "key": "2026-10-05_order-api_result.md#4"
+  }
+ ],
+ "orphans": [
+  {
+   "check_id": "ALL-001",
+   "decision": "adopted",
+   "finding": "別の指摘だったもの",
+   "key": "2026-10-05_order-api_result.md#3"
+  }
+ ]
+}

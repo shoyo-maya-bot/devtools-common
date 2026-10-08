@@ -20,10 +20,10 @@
 from __future__ import annotations
 
 import email.message
+import http.client
 import io
 import json
 import os
-import random
 import re
 import time
 import urllib.error
@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .httpclient import safe_urlopen
+from .httpclient import retry_delay, safe_urlopen
 from .log import describe_text, get_logger
 
 log = get_logger(__name__)
@@ -485,7 +485,7 @@ class LLMClient:
         start = time.monotonic()
         reply = self._send(body)
         duration_ms = int((time.monotonic() - start) * 1000)
-        data = json.loads(reply.body.decode("utf-8"))
+        data = _parse_reply(reply)
         if self.record_path:
             with self.record_path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(self._record_view(data), ensure_ascii=False) + "\n")
@@ -581,14 +581,11 @@ class LLMClient:
         return {**h, **self.extra_headers}
 
     def _delay(self, attempt: int, retry_after: str | None) -> float:
-        """retry-after（秒）があれば優先し、無ければ指数バックオフ. どちらも backoff_max までで、ゆらぎを足す."""
-        if retry_after:
-            try:
-                return min(max(float(retry_after), 0.0), self.backoff_max) + random.uniform(0, self.backoff_base / 2)
-            except ValueError:
-                pass
-        d = min(self.backoff_base * (2**attempt), self.backoff_max)
-        return d / 2 + random.uniform(0, d / 2)
+        """retry-after があれば優先し、無ければ（不正な値・nan・inf・負も）指数バックオフ.
+
+        どちらも backoff_max までで、ゆらぎを足す. 計算は httpclient.retry_delay（HttpClient と共通）.
+        """
+        return retry_delay(attempt, retry_after, base=self.backoff_base, cap=self.backoff_max, jitter=True)
 
     def _send(self, body: Mapping[str, Any]) -> _Reply:
         url = self.base_url + "/v1/messages"
@@ -609,7 +606,8 @@ class LLMClient:
                     raise APIStatusError(e.code, err_type, message, _header(hdrs, "request-id")) from e
                 delay = self._delay(attempt, _header(hdrs, "retry-after"))
                 log.info("llm: HTTP %d %s, retrying in %.1fs (attempt %d)", e.code, err_type, delay, attempt + 1)
-            except (urllib.error.URLError, OSError) as e:  # 接続拒否・切断・タイムアウト
+            # 接続拒否・切断・タイムアウト・本文の途中切れ（IncompleteRead は OSError ではない）
+            except (urllib.error.URLError, OSError, http.client.IncompleteRead) as e:
                 if last:
                     raise APIConnectionError(f"connection error: {getattr(e, 'reason', e)}") from e
                 delay = self._delay(attempt, None)
@@ -651,6 +649,25 @@ def _header(headers: Mapping[str, str] | Any, name: str) -> str | None:
         if k.lower() == name:
             return v
     return None
+
+
+def _parse_reply(reply: _Reply) -> dict[str, Any]:
+    """成功の応答の本文を読む. JSON のオブジェクトでなければ（プロキシのページ等）LLMError.
+
+    本文はログにも例外にも出さない（状態・request-id・content-type・長さだけ）.
+    """
+    request_id = _header(reply.headers, "request-id")
+    where = f"HTTP {reply.status}" + (f" (request-id {request_id})" if request_id else "")
+    try:
+        data = json.loads(reply.body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as e:
+        ctype = _header(reply.headers, "content-type") or "unknown"
+        raise LLMError(
+            f"the API returned a non-JSON body ({where}, content-type {ctype}, {len(reply.body)} bytes)"
+        ) from e
+    if not isinstance(data, dict):
+        raise LLMError(f"the API returned JSON that is not an object ({where}, {type(data).__name__})")
+    return data
 
 
 def _parse_error(e: urllib.error.HTTPError) -> tuple[str, str]:

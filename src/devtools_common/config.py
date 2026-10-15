@@ -30,8 +30,20 @@ def load_structured(path: str | Path) -> Any:
         if p.suffix.lower() == ".json":
             return json.loads(text)
         return yaml.safe_load(text)
-    except (json.JSONDecodeError, yaml.YAMLError) as e:
-        raise UsageError(f"cannot parse {p.name}: {e}") from e
+    except json.JSONDecodeError as e:
+        raise UsageError(f"cannot parse {p.name}: {e.msg} (line {e.lineno}, column {e.colno})") from None
+    except yaml.YAMLError as e:
+        raise UsageError(f"cannot parse {p.name}: {_yaml_error_summary(e)}") from None
+
+
+def _yaml_error_summary(e: yaml.YAMLError) -> str:
+    """YAML の構文エラーを、該当行の中身（api_key などの値が入りうる）を含めずに要約する."""
+    if isinstance(e, yaml.MarkedYAMLError):
+        parts = [x for x in (e.context, e.problem) if x]
+        mark = e.problem_mark or e.context_mark
+        where = f" (line {mark.line + 1}, column {mark.column + 1})" if mark is not None else ""
+        return ("; ".join(parts) or type(e).__name__) + where
+    return type(e).__name__
 
 
 def load_dotenv(path: str | Path = ".env", *, override: bool = False) -> dict[str, str]:

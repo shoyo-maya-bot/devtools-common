@@ -42,6 +42,8 @@ class RedactFilter(logging.Filter):
     結果を `msg` に入れて `args` を空にする
     （引数を文字列に変えてから整形すると `%d` が TypeError になり、ログが消える）。
     書式と引数が合わないときは、ログを消さずに書式と引数をそのまま並べて残す。
+    `exc_info`（トレースバック）と `stack_info` も、整形してから伏せ字にする
+    （例外のメッセージやローカルな値にキーが入っていても、トレースバック経由で出ないように）。
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -51,6 +53,13 @@ class RedactFilter(logging.Filter):
             text = f"{record.msg} (log args did not match the format: {record.args!r})"
         record.msg = redact(text)
         record.args = ()
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            # Formatter は exc_text があればそれを使う。exc_info を消すと他のハンドラが例外の型を見られないので残す
+            record.exc_text = redact(record.exc_text)
+        if record.stack_info:
+            record.stack_info = redact(record.stack_info)
         return True
 
 

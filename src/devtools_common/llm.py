@@ -59,6 +59,7 @@ __all__ = [
     "PRICES",
     "Price",
     "RECORD_CONTENT_MODES",
+    "SECRET_PATTERNS",
     "SchemaValidationError",
     "Usage",
     "cached_text",
@@ -286,6 +287,17 @@ _CONTEXT_CHARS = 12
 _PHONE_CONTEXT_RE = re.compile(
     r"(?:電話|でんわ|携帯|連絡先|問い?合わ?せ先|ＴＥＬ|ＦＡＸ|tel|fax|phone|mobile|☎|℡)", re.IGNORECASE
 )
+# 秘密情報らしい文字列（API キー・アクセストークン）. Masker(secrets=True)（既定）で伏せる
+_TOKEN_EDGE = r"(?<![A-Za-z0-9_\-])"  # 語の途中（task-… や risk-… など）から始まるものは対象外
+SECRET_PATTERNS: tuple[str, ...] = (
+    _TOKEN_EDGE + r"sk-ant-[A-Za-z0-9_\-]{16,}",  # Anthropic（sk-ant-api03-… / sk-ant-admin01-…）
+    _TOKEN_EDGE + r"sk-[A-Za-z0-9_\-]{20,}",  # OpenAI 形式（sk-… / sk-proj-…）
+    r"(?<![A-Z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![0-9A-Z])",  # AWS アクセスキー ID
+    _TOKEN_EDGE + r"gh[pousr]_[A-Za-z0-9]{36,}",  # GitHub トークン（ghp_ / gho_ / ghu_ / ghs_ / ghr_）
+    _TOKEN_EDGE + r"github_pat_[A-Za-z0-9_]{22,}",  # GitHub fine-grained トークン
+    _TOKEN_EDGE + r"xox[abposr]-[A-Za-z0-9\-]{10,}",  # Slack トークン
+)
+SECRET_RE = re.compile("|".join(f"(?:{p})" for p in SECRET_PATTERNS))
 
 
 @dataclass
@@ -293,13 +305,17 @@ class Masker:
     """送る前に伏せ字にする. メールアドレス・日本の電話番号（全角・+81 を含む）は常に伏せる.
 
     区切りの無い数字だけの列は、携帯・IP 電話の形か直前に「電話」「TEL」などの語があるときだけ伏せる（README 参照）。
+    secrets=True（既定）なら API キー・トークンらしい文字列（`SECRET_PATTERNS`: sk-ant-…、sk-…、AKIA…、ghp_…、
+    github_pat_…、xox?-…）も伏せる。
 
     words: そのまま伏せる語（社名・システム名など）。patterns: 伏せる正規表現。replacement: 置き換える文字列。
+    secrets: False で秘密情報らしい文字列の既定パターンを使わない。
     """
 
     patterns: Sequence[str] = ()
     words: Sequence[str] = ()
     replacement: str = MASK
+    secrets: bool = True
 
     def __post_init__(self) -> None:
         self._res = [re.compile(p) for p in self.patterns if p]
@@ -325,6 +341,8 @@ class Masker:
             return s
         for w in self._words:
             s = s.replace(w, self.replacement)
+        if self.secrets:  # メール・電話より先に（キーの中の数字の列を電話番号として一部だけ伏せないように）
+            s = SECRET_RE.sub(self.replacement, s)
         s = EMAIL_RE.sub(self.replacement, s)
         s = PHONE_RE.sub(self._phone, s)
         for r in self._res:
@@ -339,6 +357,9 @@ class Masker:
         - text ブロック: `text`
         - tool_use ブロック（assistant がツールに渡した引数）: `input` の中の文字列をすべて（キーはそのまま）
         - tool_result ブロック（ツールの結果）: `content`（文字列、またはブロックの list を同じ規則で）
+        - document ブロック: `title`・`context`、`source` が text なら `data`、content なら `content`
+          （base64 の PDF などは中身を伏せられないのでそのまま）
+        - search_result ブロック: `title`・`content`
         それ以外（画像など）と、`type`・`id`・`name`・`tool_use_id` などの本文でないキーはそのまま。
         """
         if isinstance(value, str):
@@ -358,6 +379,20 @@ class Masker:
             out["input"] = _mask_deep(b["input"], self)
         elif kind == "tool_result" and "content" in b:
             out["content"] = self.content(b["content"])
+        elif kind in ("document", "search_result"):
+            for key in ("title", "context"):
+                if isinstance(b.get(key), str):
+                    out[key] = self.text(b[key])
+            if kind == "search_result" and "content" in b:
+                out["content"] = self.content(b["content"])
+            src = b.get("source")
+            if kind == "document" and isinstance(src, dict):
+                src_out = dict(src)
+                if src.get("type") == "text" and isinstance(src.get("data"), str):
+                    src_out["data"] = self.text(src["data"])
+                elif src.get("type") == "content" and "content" in src:
+                    src_out["content"] = self.content(src["content"])
+                out["source"] = src_out
         return out
 
 
@@ -630,7 +665,16 @@ class LLMClient:
             body["tools"] = [dict(t) for t in tools]
         if tool_choice:
             body["tool_choice"] = dict(tool_choice)
-        body.update(extra or {})
+        extra = dict(extra or {})
+        if self.masker:  # extra で渡した messages / system も伏せる（伏せた後に上書きされて素通りしないように）
+            if "messages" in extra and isinstance(extra["messages"], (list, tuple)):
+                extra["messages"] = [
+                    {**m, "content": self.masker.content(m.get("content"))} if isinstance(m, Mapping) else m
+                    for m in extra["messages"]
+                ]
+            if "system" in extra and extra["system"] is not None:
+                extra["system"] = self.masker.content(extra["system"])
+        body.update(extra)
         return body
 
     def _headers(self) -> dict[str, str]:

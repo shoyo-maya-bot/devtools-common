@@ -58,7 +58,7 @@ Anthropic Messages API と互換のエンドポイントを呼ぶ小さなクラ
 | `LLMClient.complete_json(messages, schema=...)` | 構造化出力。スキーマを `input_schema` にしたツール 1 つを強制し、結果を検証して返す（`tools` / `tool_choice` は渡せない。渡すと `ValueError`） |
 | `cached_text(text, ttl=None)` | `cache_control`（ephemeral）付きの text ブロック。何度も使う長い資料に付ける |
 | `Usage` / `estimate_cost(model, in, out)` / `PRICES` | トークン数と費用の見積もり（USD）。料金表はモデル ID の接頭辞で引く |
-| `Masker(patterns=..., words=...)` | 送る前の伏せ字。メールアドレス・電話番号（全角・+81 を含む。区切りの無い数字の列の扱いは下記）は常に伏せる |
+| `Masker(patterns=..., words=..., secrets=True)` | 送る前の伏せ字。メールアドレス・電話番号（全角・+81 を含む。区切りの無い数字の列の扱いは下記）は常に伏せる。既定で API キー・トークンらしい文字列（下記）も伏せる |
 | `FakeLLM(responses)` / `FakeLLM.from_jsonl(path)` | 記録した応答を順に返すテスト用クライアント（通信しない） |
 | 例外 | `LLMError` を基底に `APIStatusError` / `APIConnectionError` / `MaxTokensError` / `SchemaValidationError` |
 
@@ -99,6 +99,13 @@ label = client.complete_json("次の指摘を分類してください: ...", sch
     (1) 携帯・IP 電話の形（`070` / `080` / `090` / `050` + 8 桁の 11 桁）、
     (2) 直前 12 文字以内に「電話」「携帯」「連絡先」「問い合わせ先」「TEL」「FAX」「Phone」「☎」などの語がある。
     それ以外（`ID 0123456789 の注文` など）は伏せません。確実に伏せたい番号の形は `patterns=` で足してください
+- 秘密情報らしい文字列の伏せ字（`Masker(secrets=True)` が既定で行う。`SECRET_PATTERNS`）:
+  `sk-ant-…`（Anthropic）、`sk-…` / `sk-proj-…`（20 文字以上）、`AKIA…` / `ASIA…`（AWS のアクセスキー ID）、
+  `ghp_…` / `gho_…` / `ghu_…` / `ghs_…` / `ghr_…`・`github_pat_…`（GitHub）、`xoxb-…` など（Slack）。
+  語の途中から始まるもの（`task-…` など）は伏せません。不要なら `secrets=False`
+- `Masker.content()` / `LLMClient(masker=...)` が伏せる本文: text ブロック、`tool_use` の `input`、`tool_result` の `content`、
+  `document` の `title`・`context`・`source`（text の `data` / content の `content`。base64 の PDF などは伏せられない）、
+  `search_result` の `title`・`content`。`extra=` で渡した `messages` / `system` も伏せてから送ります
 - `complete_json` の検証は、`jsonschema` が入っていればそれを使い、無ければ type・required・enum・properties・items だけを確かめます
 - 呼び出しごとに INFO で 1 行のログ（モデル・入出力とキャッシュのトークン数・所要時間・request-id・費用）を出します。
   本文は出しません。`record.llm` に同じ内容の dict が入ります

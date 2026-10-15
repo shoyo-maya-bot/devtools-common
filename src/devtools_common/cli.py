@@ -10,7 +10,7 @@ import sys
 from collections.abc import Callable
 from enum import IntEnum
 
-from .log import get_logger, setup_logging
+from .log import get_logger, redact, setup_logging
 
 
 class ExitCode(IntEnum):
@@ -55,13 +55,14 @@ def run_main(main: Callable[[list[str] | None], int], argv: list[str] | None = N
     try:
         return int(main(argv))
     except UsageError as e:
-        print(f"error: {e}", file=sys.stderr)
+        # 標準エラーへはログと同じ伏せ字を通す（設定ファイルの行などに秘密情報が入っていても出さない）
+        print(redact(f"error: {e}"), file=sys.stderr)
         return ExitCode.USAGE
     except KeyboardInterrupt:
         return 130
     except Exception as e:  # noqa: BLE001 — 最上位で握って終了コードに変換する
         log.debug("unhandled exception", exc_info=True)
-        print(f"error: {type(e).__name__}: {e}", file=sys.stderr)
+        print(redact(f"error: {type(e).__name__}: {e}"), file=sys.stderr)
         return ExitCode.RUNTIME
 
 

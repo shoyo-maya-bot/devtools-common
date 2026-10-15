@@ -41,9 +41,17 @@
   CSV を機械で読み直している利用者は、先頭の `'` を外す必要がある（JSON 出力は変わらない）
 - `llm`: `masker` を渡したクライアントは、`record_path` に書く応答の本文も伏せるようにした（以前は伏せずに書いていた）。
   以前と同じに書くには `record_content="raw"` を渡す
+- `llm.Masker`: 既定で API キー・トークンらしい文字列（`sk-ant-…`、`sk-…`、`AKIA…`、`ghp_…`・`github_pat_…`、`xox?-…`）も伏せる
+  （`SECRET_PATTERNS`）。以前と同じにするには `Masker(secrets=False)`
+- `cli.run_main`: 標準エラーに出すエラーメッセージを `log.redact` で伏せ字にする
+- `config.load_structured`: YAML / JSON の構文エラーのメッセージを、該当行の中身を含めず「問題・行・列」だけにした
 
 ### Fixed
 
+- `llm.LLMClient`: `extra=` に `messages` / `system` を入れると、伏せ字の後に上書きされて伏せずに送っていた → それも伏せる
+- `llm.Masker`: `document` ブロック（`title`・`context`・text / content の `source`）と `search_result` ブロックを伏せていなかった
+- `log.RedactFilter`: `exc_info` のトレースバックと `stack_info` を伏せていなかった（例外メッセージの API キーがそのまま出た）
+- `config.load_structured`: 壊れた YAML のエラーに該当行がそのまま入り、`api_key: …` の行が標準エラーに出ていた
 - `llm.LLMClient.complete_json`: `tools=` / `tool_choice=` を渡すと `TypeError: got multiple values for keyword argument 'tools'`
   になっていた。分かりやすい `ValueError` で弾く（自分のツールを使うときは `complete()`）
 - `llm`: 証明書の検証エラーなどの TLS の誤り・URL の誤りも、接続エラーとして 3 回待って再試行していた。直らない失敗は

@@ -88,6 +88,9 @@ devtools 系のすべてのツール（`doc2md` / `fieldcheck` / テンプレー
 - **CSV**: 1 行目がヘッダ `severity,rule_id,location,field,message,expected,actual,suggestion`。1 指摘 = 1 行。
   UTF-8（BOM なし）。Excel で開く場合は「データ → テキストまたは CSV から」で UTF-8 を指定してください。
 - **Markdown / HTML**: 人が読むための形式。列は CSV と同じ。`meta` と件数の要約が先頭に付きます。
+  Markdown の表のセルは `\` → `\\`、`|` → `\|`、改行（LF・CRLF・CR）→ `<br>` にします。表題（`title`）と `meta` の行は、
+  改行を空白にし、書式の記号（`\` `` ` `` `*` `_` `[` `]` `<` `>`）の前に `\` を付けます（表示される文字は同じ）。
+  HTML はすべての値を HTML エスケープします。
 
 ## 5. ツールごとの meta と rule_id
 

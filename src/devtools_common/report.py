@@ -83,11 +83,27 @@ def neutralize_formula(value: Any) -> Any:
 
 
 def _md_cell(v: str) -> str:
-    """Markdown（GFM）の表のセル. `\\` → `\\\\`、`|` → `\\|`、改行 → `<br>`.
+    """Markdown（GFM）の表のセル. `\\` → `\\\\`、`|` → `\\|`、改行（LF・CRLF・CR）→ `<br>`.
 
     `\\` を先にエスケープしないと、値の `a\\|b` が `a\\\\|b`（文字の `\\` の後ろの区切り）になり列がずれる。
+    CR だけの改行も `<br>` にする（残すと表の行が CR で割れて見える）。
     """
-    return str(v).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+    text = str(v).replace("\r\n", "\n").replace("\r", "\n")
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+
+
+# Markdown の見出し・箇条書きの中で書式として読まれる文字（バックスラッシュで打ち消す）
+_MD_INLINE_SPECIALS = frozenset("\\`*_[]<>")
+
+
+def _md_inline(v: Any) -> str:
+    """Markdown の見出し（title）と箇条書き（meta）の 1 行. 改行は空白にし、書式の記号はエスケープする.
+
+    title に改行があると見出しの外に本文が出る、`<script>` やリンクの書式がそのまま効く、を防ぐ。
+    表示される文字は元の値と同じ。
+    """
+    text = " ".join(str(v).replace("\r\n", "\n").replace("\r", "\n").split("\n"))
+    return "".join("\\" + ch if ch in _MD_INLINE_SPECIALS else ch for ch in text)
 
 
 def report_schema() -> dict[str, Any]:
@@ -157,8 +173,8 @@ def render(
             w.writerow({k: neutralize_formula(d[k]) for k in COLUMNS})
         return buf.getvalue()
     if fmt == "markdown":
-        lines = [f"# {title}", ""]
-        lines += [f"- {k}: {v}" for k, v in meta.items()]
+        lines = [f"# {_md_inline(title)}", ""]
+        lines += [f"- {_md_inline(k)}: {_md_inline(v)}" for k, v in meta.items()]
         lines += [f"- 結果: error {counts['error']} / warning {counts['warning']} / info {counts['info']}", ""]
         if not findings:
             lines.append("指摘はありません。")

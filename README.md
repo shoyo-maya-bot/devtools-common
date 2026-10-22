@@ -7,8 +7,8 @@
 
 | モジュール | 内容 |
 |---|---|
-| `devtools_common.cli` | 終了コード規約（0 OK / 1 指摘あり / 2 使い方・設定の誤り / 3 実行時エラー）、共通オプション（`--format` `--output` `--log-level`）、`run_main` |
-| `devtools_common.log` | 標準エラーへのログ設定、秘密情報の伏せ字フィルタ、本文をログに出さないための `describe_text` |
+| `devtools_common.cli` | 終了コード規約（0 OK / 1 指摘あり / 2 使い方・設定の誤り / 3 実行時エラー / 130 中断（Ctrl+C））、共通オプション（`--format` `--output` `--log-level`）、`run_main` |
+| `devtools_common.log` | 標準エラーへのログ設定、秘密情報の伏せ字フィルタ（`redact`。下の「ログの伏せ字」）、本文をログに出さないための `describe_text` |
 | `devtools_common.tempfiles` | `secure_tempdir()`：0700・例外時も必ず削除する一時ディレクトリ |
 | `devtools_common.config` | YAML/JSON 読み込み、`.env` 読み込み（外部依存なし）、`require_env()` |
 | `devtools_common.httpclient` | 外部 API 用クライアント：レート制限・指数バックオフ・`Retry-After` 対応（標準ライブラリのみ） |
@@ -22,17 +22,30 @@
 
 `HttpClient` は 429 / 5xx / ネットワークエラーを再試行します。ただし二重登録を防ぐため、再試行するのは次のときだけです。
 
-- GET / HEAD / PUT / DELETE / OPTIONS は、上のエラーでいつでも再試行する。
+- GET / HEAD / PUT / DELETE / OPTIONS / TRACE は、上のエラーでいつでも再試行する。
 - POST / PATCH は、サーバーに届いていないことが確実なとき（接続拒否・名前解決の失敗）と、
   `Retry-After` 付きの 429 のときだけ再試行する。5xx や読み取りタイムアウトでは再試行しない。
 - 何度送っても結果が同じ POST は `idempotent=True` を渡すか、`Idempotency-Key` ヘッダーを付ける。いつでも再試行する。
 - 逆に `idempotent=False` を渡すと、GET でも届いた可能性があるときは再試行しない。
+- 再送しても直らない失敗（証明書の検証エラーなどの TLS の誤り、`unknown url type` などの URL の誤り）は、どのメソッドでも
+  再試行せず、すぐ `HttpError`（メッセージに `permanent`）にする。送信中・受信中の切断（`BrokenPipeError`・
+  `ConnectionResetError` 等）や壊れた応答（`http.client.HTTPException`）も生の例外ではなく `HttpError` にする。
 
 ```python
 client.post("chat.postMessage", json_body=msg)  # 5xx でも再送しない（二重投稿を防ぐ）
 client.post("search", json_body=q, idempotent=True)  # 副作用のない POST は再試行してよい
 client.post("issues", json_body=issue, headers={"Idempotency-Key": key})  # API が対応していれば再試行してよい
 ```
+
+### ログの伏せ字
+
+`log.redact(text)`（`RedactFilter` と `cli.run_main` のエラー表示が使う）は、次を `***` にします。
+
+- トークンの形: `AKIA…` / `ASIA…`（AWS）、`ghp_…` 等・`github_pat_…`（GitHub）、`xoxb-…` 等（Slack）、`sk-ant-…`（Anthropic）、
+  `sk-…` / `sk-proj-…`（20 文字以上）。`llm.SECRET_PATTERNS` と同じ種類です（テストで一致を確かめています）
+- `Bearer <トークン>`、`Authorization: Basic <値>`
+- キー名と値の組: `password` / `passwd` / `secret` / `token` / `api_key`（`apiKey`・`api-key` も）の値。
+  `key=値`・`key: 値`・JSON の `"api_key": "値"`（引用符は残して中だけ伏せる）
 
 ### HTTP の送り先の制限
 

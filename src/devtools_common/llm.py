@@ -29,7 +29,6 @@ import io
 import json
 import os
 import re
-import ssl
 import time
 import urllib.error
 import urllib.request
@@ -38,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .httpclient import retry_delay, safe_urlopen
+from .httpclient import is_permanent_network_error, retry_delay, safe_urlopen
 from .log import describe_text, get_logger
 
 log = get_logger(__name__)
@@ -108,20 +107,8 @@ class APIConnectionError(LLMError):
 
 
 def _is_permanent_connection_error(e: BaseException) -> bool:
-    """再送しても直らない接続の失敗か（再試行しない）.
-
-    - 証明書の検証エラー・TLS の取り決めの失敗（ssl.SSLError. ただし途中で切れた SSLEOFError 等は一時的とみなす）
-    - URL の誤り（URLError の reason が文字列: unknown url type 等）、http.client の InvalidURL など
-      （再試行するのは、応答の途中切れ IncompleteRead と応答の 1 行目が壊れた・切れた BadStatusLine だけ）
-    """
-    reason: object = e.reason if isinstance(e, urllib.error.URLError) else e
-    if isinstance(reason, str):
-        return True
-    if isinstance(reason, ssl.SSLError):
-        return not isinstance(reason, (ssl.SSLEOFError, ssl.SSLZeroReturnError, ssl.SSLWantReadError))
-    if isinstance(reason, http.client.HTTPException):
-        return not isinstance(reason, (http.client.IncompleteRead, http.client.BadStatusLine))
-    return False
+    """再送しても直らない接続の失敗か（再試行しない）. 判定は httpclient.is_permanent_network_error（共通）."""
+    return is_permanent_network_error(e)
 
 
 class MaxTokensError(LLMError):

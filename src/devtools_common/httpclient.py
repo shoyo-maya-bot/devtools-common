@@ -2,6 +2,7 @@
 
 - レート制限: トークンバケットで 1 秒あたりのリクエスト数を制御
 - リトライ: 429 / 5xx / ネットワークエラー（応答の受信中の切断・本文の途中切れを含む）を指数バックオフで再試行
+  （再送しても直らない失敗: 証明書の検証エラーなどの TLS の誤り・URL の誤りは再試行せず、すぐ HttpError にする）
   （使える Retry-After を優先。待ち時間の計算は `retry_delay` の 1 か所で、llm.py も使う）
   - 冪等なメソッド（GET / HEAD / PUT / DELETE / OPTIONS / TRACE）だけを再試行する
   - POST / PATCH は二重登録を防ぐため、サーバーに届いていないことが確実なとき（接続拒否・名前解決の失敗）と
@@ -21,6 +22,7 @@ import json
 import math
 import random
 import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -42,13 +44,27 @@ IDEMPOTENCY_KEY_HEADER = "idempotency-key"
 _NOT_SENT_ERRORS: tuple[type[BaseException], ...] = (ConnectionRefusedError, socket.gaierror)
 
 
-# 送信後に起きうる通信の失敗（応答の受信中の切断・本文の途中切れ）. サーバーに届いた可能性がある.
-# urllib は応答を読む段階のこれらを URLError に包まずにそのまま送出する
-_TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
-    http.client.RemoteDisconnected,
-    http.client.IncompleteRead,
-    ConnectionResetError,
-)
+# 送信後に起きうる通信の失敗（受信中の切断 RemoteDisconnected・ConnectionResetError、本文の途中切れ IncompleteRead、
+# 送信中の切断 BrokenPipeError 等）はサーバーに届いた可能性がある. urllib は応答を読む段階のこれらを URLError に包まずに
+# そのまま送出するので、HttpClient.request は OSError と http.client.HTTPException をまとめて受けて HttpError にする
+
+
+def is_permanent_network_error(e: BaseException) -> bool:
+    """再送しても直らない通信の失敗か（再試行しない）. HttpClient と LLMClient の共通の判定.
+
+    - 証明書の検証エラー・TLS の取り決めの失敗（ssl.SSLError. ただし途中で切れた SSLEOFError 等は一時的とみなす）
+    - URL の誤り（URLError の reason が文字列: unknown url type 等）、http.client の InvalidURL など
+      （http.client.HTTPException のうち再試行するのは、本文の途中切れ IncompleteRead と応答の 1 行目が壊れた・
+      切れた BadStatusLine（RemoteDisconnected を含む）だけ）
+    """
+    reason: object = e.reason if isinstance(e, urllib.error.URLError) else e
+    if isinstance(reason, str):
+        return True
+    if isinstance(reason, ssl.SSLError):
+        return not isinstance(reason, (ssl.SSLEOFError, ssl.SSLZeroReturnError, ssl.SSLWantReadError))
+    if isinstance(reason, http.client.HTTPException):
+        return not isinstance(reason, (http.client.IncompleteRead, http.client.BadStatusLine))
+    return False
 
 
 def parse_retry_after(value: str | None, *, now: Callable[[], float] = time.time) -> float | None:
@@ -287,10 +303,13 @@ class HttpClient:
                     self._log_not_retried(method, path, idempotent, e.code in RETRY_STATUSES)
                     raise last_error from e
                 delay = self._backoff(attempt, retry_after)
-            except (urllib.error.URLError, TimeoutError, *_TRANSIENT_ERRORS) as e:
-                # 応答の受信中の切断（RemoteDisconnected・ConnectionResetError）と本文の途中切れ（IncompleteRead）も
-                # 通信の失敗として扱う（生の例外を漏らさず HttpError にする）
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+                # 応答の受信中の切断（RemoteDisconnected・ConnectionResetError）、本文の途中切れ（IncompleteRead）、
+                # 送信中の切断（BrokenPipeError）も通信の失敗として扱う（生の例外を漏らさず HttpError にする）
                 reason = getattr(e, "reason", e)
+                if is_permanent_network_error(e):
+                    # 証明書の検証エラーや URL の誤りは何度送っても同じなので再試行しない
+                    raise HttpError(None, f"permanent network error: {type(reason).__name__}: {reason}") from e
                 last_error = HttpError(None, f"network error: {reason}")
                 # URLError でも送信中のタイムアウト等は届いた可能性がある。読み取りタイムアウト（TimeoutError）も同じ
                 not_sent = isinstance(e, urllib.error.URLError) and isinstance(reason, _NOT_SENT_ERRORS)

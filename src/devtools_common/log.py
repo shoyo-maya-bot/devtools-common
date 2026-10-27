@@ -11,23 +11,44 @@ import logging
 import re
 import sys
 
+_TOKEN_EDGE = r"(?<![A-Za-z0-9_\-])"  # 語の途中（task-… など）から始まるものは対象外（llm.SECRET_PATTERNS と同じ）
+
+# トークンの形をした文字列（llm.SECRET_PATTERNS と同じ種類。tests/test_log_redact_llm_parity.py が一致を確かめる）
 _SECRET_PATTERNS = [
-    re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}"),
-    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
-    re.compile(r"sk-ant-[A-Za-z0-9_\-]{16,}"),  # Anthropic の API キー（sk-ant-api03-… / sk-ant-admin01-…）
+    re.compile(r"(?<![A-Z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![0-9A-Z])"),  # AWS アクセスキー ID
+    re.compile(_TOKEN_EDGE + r"gh[pousr]_[A-Za-z0-9]{36,}"),  # GitHub（ghp_ / gho_ / ghu_ / ghs_ / ghr_）
+    re.compile(_TOKEN_EDGE + r"github_pat_[A-Za-z0-9_]{22,}"),  # GitHub fine-grained トークン
+    re.compile(_TOKEN_EDGE + r"xox[abposr]-[A-Za-z0-9\-]{10,}"),  # Slack
+    re.compile(_TOKEN_EDGE + r"sk-ant-[A-Za-z0-9_\-]{16,}"),  # Anthropic（sk-ant-api03-… / sk-ant-admin01-…）
+    re.compile(_TOKEN_EDGE + r"sk-[A-Za-z0-9_\-]{20,}"),  # OpenAI 形式（sk-… / sk-proj-…）
     re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-]{16,}"),
     # Authorization / Proxy-Authorization: Basic <base64(ユーザー:パスワード)>（短くても伏せる）
     re.compile(r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?basic\s+)[A-Za-z0-9+/=._\-]+"),
-    re.compile(r"(?i)((?:password|passwd|secret|token|api[_-]?key)\s*[:=]\s*)\S+"),
 ]
+# キー名と値の組（`password=…`、`token: …`、JSON の `"api_key": "…"`）。引用符で囲んだ値は引用符を残して中だけ伏せる
+_KEY_VALUE_RE = re.compile(
+    r"(?i)((?:password|passwd|secret|token|api[_-]?key)[\"']?\s*[:=]\s*)"
+    r"(\"(?:[^\"\\]|\\.)*\"|'[^']*'|\S+)"
+)
+
+
+def _mask_value(m: re.Match[str]) -> str:
+    value = m.group(2)
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return f"{m.group(1)}{value[0]}***{value[0]}"
+    return f"{m.group(1)}***"
 
 
 def redact(text: str) -> str:
-    """秘密情報らしき部分を *** に置き換える."""
+    """秘密情報らしき部分を *** に置き換える.
+
+    対象: AWS（AKIA / ASIA）・GitHub（ghp_ 等・github_pat_）・Slack（xox?-）・Anthropic（sk-ant-）・
+    OpenAI 形式（sk- / sk-proj-）のトークン、Bearer トークン、Authorization: Basic、
+    `password` / `passwd` / `secret` / `token` / `api_key` の値（`key=値`・`key: 値`・JSON の `"key": "値"`）。
+    """
     for rx in _SECRET_PATTERNS:
         text = rx.sub(lambda m: (m.group(1) if m.groups() else "") + "***", text)
-    return text
+    return _KEY_VALUE_RE.sub(_mask_value, text)
 
 
 def describe_text(text: str) -> str:

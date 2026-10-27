@@ -31,6 +31,16 @@
 
 ### Changed
 
+- `log.redact`（`RedactFilter`・`cli.run_main` のエラー表示）: `github_pat_…`・`sk-…` / `sk-proj-…`・`ASIA…`・Slack の `xoxa-` 等も伏せる
+  （`llm.SECRET_PATTERNS` と同じ種類）。JSON の `"api_key": "値"` のように、キーの後ろに引用符がある形も伏せる
+  （引用符は残して中だけ `***`）
+- `httpclient.HttpClient`: 証明書の検証エラーなどの TLS の誤りと URL の誤りは再試行せず、すぐ `HttpError`（`permanent`）にする。
+  `BrokenPipeError`・`ConnectionAbortedError`・`http.client.HTTPException` も生の例外ではなく `HttpError` にする
+  （判定は新しい `httpclient.is_permanent_network_error` に寄せ、`llm` も同じものを使う）
+- `report`: Markdown の表のセルで CR だけの改行も `<br>` にする。Markdown の表題と `meta` の行の改行を空白にし、
+  書式の記号をエスケープする（表示される文字は同じ）
+- README・docs/REPORT_FORMAT.md: 終了コード 130、HTTP の再試行の対象（TRACE・再試行しない失敗）、ログの伏せ字の対象、
+  Markdown のエスケープを実装に合わせて書いた（`tests/test_docs_match_code.py` が一致を確かめる）
 - 版を `0.4.0.dev0` にした（`llm`・`excel`・`review_results` を足した未リリースの変更が入っているのに `0.3.0` を名乗っていた）。
   次のリリースは `0.4.0`
 - `llm.Masker`: 区切りの無い 0 始まり 10〜11 桁の数字（`ID 0123456789 の注文` などの注文番号）を電話番号として伏せていた。

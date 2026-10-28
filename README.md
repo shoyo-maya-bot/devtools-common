@@ -97,7 +97,8 @@ label = client.complete_json("次の指摘を分類してください: ...", sch
 
 - 接続先は引数 `base_url` → 環境変数 `ANTHROPIC_BASE_URL` → `https://api.anthropic.com` の順。
   API キーは `ANTHROPIC_API_KEY`（ゲートウェイ向けに `ANTHROPIC_AUTH_TOKEN` も使える）
-- 429 / 5xx（529 を含む）/ 接続エラー・タイムアウトは再試行します（既定 3 回）。`retry-after` があればそれに従い、
+- 429 / 5xx（529 を含む）/ 接続エラー・タイムアウトは再試行します（既定 3 回）。応答に `x-should-retry` ヘッダーがあれば、
+  ステータスより優先します（`true` なら 4xx でも再試行、それ以外の値（`false` 等）なら 429 / 5xx でも再試行せず、すぐ `APIStatusError`）。`retry-after` があればそれに従い、
   無ければ指数バックオフ。どちらも `backoff_max` 秒までで、ゆらぎを足します。
   再送しても直らない失敗（証明書の検証エラーなどの TLS の誤り、`unknown url type` などの URL の誤り）は再試行せず、
   すぐ `APIConnectionError`（メッセージに `permanent`）にします。`http.client.HTTPException`（応答の 1 行目が壊れた
@@ -109,9 +110,11 @@ label = client.complete_json("次の指摘を分類してください: ...", sch
   - ハイフン・空白・括弧などの区切りがある、0 で始まる 10〜11 桁（`03-1234-5678`、`090 1234 5678`、全角も）は伏せる
   - `+81` で始まるもの（`+81 90-1234-5678`、`+819012345678`）は伏せる
   - **区切りの無い数字だけの列**は注文番号・ID と区別できないため、次のどちらかのときだけ伏せます。
-    (1) 携帯・IP 電話の形（`070` / `080` / `090` / `050` + 8 桁の 11 桁）、
+    (1) 携帯・IP 電話・FMC の形（`070` / `080` / `090` / `050` / `060` + 8 桁の 11 桁）、
     (2) 直前 12 文字以内に「電話」「携帯」「連絡先」「問い合わせ先」「TEL」「FAX」「Phone」「☎」などの語がある。
     それ以外（`ID 0123456789 の注文` など）は伏せません。確実に伏せたい番号の形は `patterns=` で足してください
+  - 小数（`0.1234567890` のように「0.」で始まるもの、`1.0312345678` のように「数字.」の後に続くもの）は、
+    桁数が電話番号と同じでも伏せません。小数点 `.` を区切りにした `03.1234.5678` は伏せます
 - 秘密情報らしい文字列の伏せ字（`Masker(secrets=True)` が既定で行う。`SECRET_PATTERNS`）:
   `sk-ant-…`（Anthropic）、`sk-…` / `sk-proj-…`（20 文字以上）、`AKIA…` / `ASIA…`（AWS のアクセスキー ID）、
   `ghp_…` / `gho_…` / `ghu_…` / `ghs_…` / `ghr_…`・`github_pat_…`（GitHub）、`xoxb-…` など（Slack）。
@@ -123,6 +126,9 @@ label = client.complete_json("次の指摘を分類してください: ...", sch
 - 呼び出しごとに INFO で 1 行のログ（モデル・入出力とキャッシュのトークン数・所要時間・request-id・費用）を出します。
   本文は出しません。`record.llm` に同じ内容の dict が入ります
 - 料金表（`PRICES`, USD / 100 万トークン）は llm.py の 1 か所にあります。確認日をコメントに書いています。
+  キャッシュの読み込み（`cache_read`）は多くのモデルで入力の 0.1 倍ですが、`claude-opus-5-5`・`claude-sonnet-5-5` は 0.05 倍です
+  （公式の料金表どおり）。`cache_write` は 5 分キャッシュの書き込みの単価（入力の 1.25 倍）です。`cached_text(ttl="1h")` の書き込みも
+  この単価で見積もるため、実際（入力の 2 倍）より少なく出ます
   表に無いモデルは費用を `None` にし、「unknown model」の警告を出します（0 円と誤解させないため）
 - `record_path=` を渡すと応答を JSONL に記録し、テストでは `FakeLLM.from_jsonl()` で同じ応答を再生できます。
   **応答の本文がファイルに残ります**。業務の文書を扱うときは置き場所に気をつけ、コミットしないでください。
@@ -257,17 +263,24 @@ Git 依存の代わりにそれを使います（GitHub の認証なしでセッ
 - 公開 API（上表のモジュールの公開関数・クラス）を壊す変更は MAJOR（0.x の間は MINOR）を上げる。
 - リリース: `version` と `CHANGELOG.md` を更新 → マージ → `git tag v0.1.0 && git push origin v0.1.0`
   （`release.yml` がタグと `version` の一致を検査し、wheel を GitHub Release に添付）。
-- 各ツールは Renovate / Dependabot で依存タグの更新 PR を受け取る運用を推奨。
+- 各ツールは devtools-common をコミット SHA で固定しているので、新しい版を使うときは SHA を書き換える PR を出す
+  （Renovate 等で自動化してもよい）。
 
 ## 開発
 
 ```bash
 ./setup.sh --dev          # Windows: .\scripts\setup.ps1 -Dev
 ruff check . && ruff format --check .
-pip install -e ".[dev]" -c constraints.txt   # CI と同じ版で入れる（constraints.txt は deps-lock.yml が Python 3.10 で作る）
+pip install -e ".[dev]" -c constraints.txt   # CI のテストと同じ版で入れる（constraints.txt は deps-lock.yml が Python 3.10 で作る）
 pytest            # 全件（unittest の discover は pytest 形式のテストを拾わず一部しか走らないので使わない）
-python scripts/verify_gates.py   # CI と同じゲートを同じ順で（push 前に）
+python scripts/verify_gates.py   # CI と同じ種類のゲートを同じ順で（push 前に）
 ```
+
+CI（`ci.yml` → devtools-workspace の共通 `python-ci.yml`、SHA 固定）のゲートは lint・format・test（ubuntu の Python 3.10 / 3.12
+と Windows の 3.12）・bandit（`src/` の Medium 以上）・pip-audit です。**ruff・bandit・pip-audit の版は共通 CI 側で固定**
+（いま固定している SHA では ruff 0.15.11・bandit 1.8.6・pip-audit 2.9.0）されていて、`constraints.txt` の ruff（0.16.x）とは違います。
+`verify_gates.py` は手元の仮想環境に入っている版で動くので、ruff の版の違いで結果が変わることがあります
+（最初に各ツールの版を表示します）。CI と同じ版で確かめるときは `pip install ruff==0.15.11` を入れてから実行してください。
 
 ## セキュリティ・ライセンス
 

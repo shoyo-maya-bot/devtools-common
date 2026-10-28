@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""CI と同じ品質ゲートを、CI と同じ順番でローカル実行する（push 前の確認用）.
+"""CI と同じ種類の品質ゲートを、CI と同じ順番でローカル実行する（push 前の確認用）.
 
     python scripts/verify_gates.py            # 全ゲート
     python scripts/verify_gates.py --quick    # lint・フォーマット・テストだけ
     python scripts/verify_gates.py --fix      # lint の自動修正とフォーマットを先に適用してから確認
 
-ゲート（CI の python-ci.yml と同じ）:
+ゲート（1〜5 は CI の python-ci.yml と同じ種類・同じ順。6 は CI に無い）:
   1. lint        ruff check
   2. format      ruff format --check
   3. test        pytest
-  4. sast        bandit（src/ の High 以上。未導入なら skip）
+  4. sast        bandit -ll（src/ の Medium 以上。未導入なら skip）
   5. deps        pip-audit（依存ライブラリの既知脆弱性。未導入・オフラインなら skip）
-  6. trace       spec-trace check traceability/（traceability/ があり spec-trace が入っている場合）
+  6. trace       spec-trace check traceability/（traceability/ があり spec-trace が入っている場合だけ）
+
+ツールの版: CI は ruff・bandit・pip-audit を共通 CI（devtools-workspace の python-ci.yml）の env で固定している
+（ruff 0.15.11 など）。このスクリプトは手元の仮想環境に入っている版（constraints.txt では ruff 0.16.x）で動くので、
+版の違いで結果がずれることがある。最初に各ツールの版を表示する。
 
 終了コード: 0 すべて PASS（skip を含む）/ 1 FAIL あり。
 **ゲートを通すためにテストやチェックを甘くしない**（アサーション削除・除外追加・無効化は禁止）。
@@ -31,6 +35,16 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _module(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
+
+
+def _version(module: str) -> str:
+    """インストールされている版（未導入なら「未導入」）."""
+    from importlib import metadata
+
+    try:
+        return metadata.version(module.replace("_", "-"))
+    except metadata.PackageNotFoundError:
+        return "未導入"
 
 
 def gates(quick: bool) -> list[tuple[str, list[str] | None, str]]:
@@ -74,6 +88,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.fix:
         subprocess.run([sys.executable, "-m", "ruff", "check", "--fix", "."], cwd=ROOT)
         subprocess.run([sys.executable, "-m", "ruff", "format", "."], cwd=ROOT)
+
+    print("ツールの版（CI は共通 CI 側で固定。違うと結果がずれることがある）:")
+    for mod in ("ruff", "pytest", "bandit", "pip_audit"):
+        print(f"  {mod}: {_version(mod)}")
 
     results: list[tuple[str, str, str]] = []
     for name, cmd, note in gates(args.quick):

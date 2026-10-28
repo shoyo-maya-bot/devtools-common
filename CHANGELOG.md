@@ -58,6 +58,17 @@
 
 ### Fixed
 
+- `llm.Masker`: `0.1234567890` のような小数（「0.」で始まるもの、「数字.」の後に続くもの）を電話番号として伏せていたのを直した。
+  小数点を区切りにした電話番号（`03.1234.5678`）はこれまでどおり伏せる
+- `llm.PRICES`: `claude-sonnet-5-5` のキャッシュ読み込みの単価を 0.20 → 0.10 USD に直した（公式の料金表では入力の 0.05 倍）。
+  確認日を 2026-10-29 に更新
+- README: 区切りの無い携帯の形に `060`（FMC）を書き足した（実装はもとから伏せていた）。`x-should-retry` ヘッダーの扱い、
+  キャッシュの単価の比率、1 時間キャッシュの書き込みを 5 分の単価で見積もることを書いた。共通 CI と手元の ruff の版の違いを書いた
+- `setup.sh` / `scripts/setup.ps1`: 終わりの案内がテンプレートの写し（Copilot のプロンプト・`python --help`）だったのを、
+  ライブラリ向けの案内に直した
+- `scripts/verify_gates.py`: 説明の「CI と同じ」を実際に合わせた（bandit は `-ll` で Medium 以上、trace は CI に無い、
+  ツールの版は共通 CI 側で固定）。最初に手元のツールの版を表示する
+
 - `llm.LLMClient`: `extra=` に `messages` / `system` を入れると、伏せ字の後に上書きされて伏せずに送っていた → それも伏せる
 - `llm.Masker`: `document` ブロック（`title`・`context`・text / content の `source`）と `search_result` ブロックを伏せていなかった
 - `log.RedactFilter`: `exc_info` のトレースバックと `stack_info` を伏せていなかった（例外メッセージの API キーがそのまま出た）

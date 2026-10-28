@@ -37,5 +37,5 @@ if ($LASTEXITCODE -ne 0) { exit 1 }
 & $vpy -c "import devtools_common; print('devtools-common', devtools_common.__version__)"
 Write-Host ""
 Write-Host "完了しました。" -ForegroundColor Green
-Write-Host "  - VS Code でこのフォルダを開き、Copilot Chat で / を入力するとプロンプトが使えます"
-Write-Host "  - ターミナルで使う場合: .\.venv\Scripts\Activate.ps1 を実行してから python --help"
+Write-Host "  - このリポジトリはライブラリです（コマンドはありません）。各ツールが依存として取り込みます"
+Write-Host "  - 開発する場合: .\.venv\Scripts\Activate.ps1 を実行してから pytest（-Dev で入れたとき）"

@@ -41,3 +41,29 @@ def test_phone_numbers_are_masked(text, expected):
 def test_context_word_must_be_near():
     text = "電話の件は別途。なお今回の注文の ID は 0312345678 です"
     assert Masker().text(text) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "比率 0.1234567890",
+        "係数 0.123456789",
+        "値は 0.5 0.25 0.125 0.0625",
+        "1.0312345678 倍",
+        "全角 ０．１２３４５６７８９０",
+    ],
+)
+def test_decimals_are_not_masked_as_phone_numbers(text):
+    assert Masker().text(text) == text
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("FMC 06012345678", f"FMC {MASK}"),  # README に書いた 060 も区切り無しで伏せる
+        ("03.1234.5678", MASK),  # 小数点を区切りにした電話番号は伏せる
+        ("電話 0.3123.45678 は誤記", "電話 0.3123.45678 は誤記"),  # 「0.」で始まるものは小数とみなす
+    ],
+)
+def test_phone_number_edge_cases(text, expected):
+    assert Masker().text(text) == expected

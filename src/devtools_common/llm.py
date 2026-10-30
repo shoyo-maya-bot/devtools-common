@@ -144,11 +144,12 @@ class Price:
 
 
 # 料金表（USD / 100 万トークン）. キーはモデル ID の接頭辞（日付付きの ID・-latest にも当たる）。
-# 確認日: 2026-10-06 https://platform.claude.com/docs/en/about-claude/pricing — 使う前に公式の料金表で確かめる。
+# 確認日: 2026-10-29 https://platform.claude.com/docs/en/about-claude/pricing — 使う前に公式の料金表で確かめる。
+# cache_read は多くのモデルで入力の 0.1 倍だが、Opus 5.5・Sonnet 5.5 は 0.05 倍（公式の料金表の注記）。
 # ここに無いモデルは費用を None とし、警告を出す。
 PRICES: dict[str, Price] = {
     "claude-opus-5-5": Price(4.0, 20.0, 5.0, 0.20),
-    "claude-sonnet-5-5": Price(2.0, 10.0, 2.50, 0.20),
+    "claude-sonnet-5-5": Price(2.0, 10.0, 2.50, 0.10),
     "claude-opus-5": Price(5.0, 25.0, 6.25, 0.50),
     "claude-sonnet-5": Price(2.0, 10.0, 2.50, 0.20),
     "claude-opus-4-8": Price(5.0, 25.0, 6.25, 0.50),
@@ -267,13 +268,24 @@ _SEP = r"[\s\-‐‑–—―−－ー.．()（）]"
 _ALNUM = "A-Za-z0-9Ａ-Ｚａ-ｚ０-９"
 EMAIL_RE = re.compile(rf"[{_ALNUM}._%+\-．＿％＋－]+\s*[@＠]\s*[{_ALNUM}\-－]+(?:\s*[.．]\s*[{_ALNUM}\-－]+)+")
 PHONE_RE = re.compile(rf"(?<![0-9０-９])(?:[+＋]\s*[8８][1１]|[0０])(?:{_SEP}{{0,2}}{_D}){{8,11}}(?![0-9０-９])")
-# 区切りの無い 11 桁の携帯（070/080/090）・IP 電話（050）は、周りの語が無くても電話番号とみなす
+# 区切りの無い 11 桁の携帯（070/080/090）・IP 電話（050）・FMC（060）は、周りの語が無くても電話番号とみなす
 _MOBILE_RE = re.compile(r"[0０][5-9５-９][0０][0-9０-９]{8}")
 # 区切りの無い数字の列の直前（_CONTEXT_CHARS 文字以内）にこの語があれば電話番号とみなす
 _CONTEXT_CHARS = 12
 _PHONE_CONTEXT_RE = re.compile(
     r"(?:電話|でんわ|携帯|連絡先|問い?合わ?せ先|ＴＥＬ|ＦＡＸ|tel|fax|phone|mobile|☎|℡)", re.IGNORECASE
 )
+_DOT = ".．"
+
+
+def _is_decimal(m: re.Match[str]) -> bool:
+    """PHONE_RE の一致が小数の一部か. 「0.」で始まる、または直前が「数字 + 小数点」（1.0312345678 の 0 以降）."""
+    s, start = m.group(0), m.start()
+    if len(s) > 1 and s[1] in _DOT:
+        return True
+    return start >= 2 and m.string[start - 1] in _DOT and re.fullmatch(_D, m.string[start - 2]) is not None
+
+
 # 秘密情報らしい文字列（API キー・アクセストークン）. Masker(secrets=True)（既定）で伏せる
 _TOKEN_EDGE = r"(?<![A-Za-z0-9_\-])"  # 語の途中（task-… や risk-… など）から始まるものは対象外
 SECRET_PATTERNS: tuple[str, ...] = (
@@ -314,6 +326,8 @@ class Masker:
         if s[0] in "+＋":
             return self.replacement if 11 <= digits <= 12 else s  # 81 + 9〜10 桁
         if not 10 <= digits <= 11:
+            return s
+        if _is_decimal(m):  # 0.1234567890 のような小数（電話番号は「0.」で始まらない）
             return s
         if digits != len(s):  # 区切り（ハイフン・空白・括弧など）付き
             return self.replacement

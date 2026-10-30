@@ -25,5 +25,5 @@ echo "== devtools-common をインストール"
 "$VPY" -c "import devtools_common; print('devtools-common', devtools_common.__version__)"
 echo
 echo "完了しました。"
-echo "  - VS Code でこのフォルダを開き、Copilot Chat で / を入力するとプロンプトが使えます"
-echo "  - ターミナルで使う場合: source .venv/bin/activate してから python --help"
+echo "  - このリポジトリはライブラリです（コマンドはありません）。各ツールが依存として取り込みます"
+echo "  - 開発する場合: source .venv/bin/activate してから pytest（./setup.sh --dev で入れたとき）"

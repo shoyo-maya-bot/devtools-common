@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from devtools_common import httpclient, report
 from devtools_common.cli import ExitCode
 
@@ -41,3 +43,30 @@ def test_report_format_markdown_specials_match_code():
     documented = set(re.findall(r"`` ` ``|`([^`]+)`", para))
     documented = {d or "`" for d in documented}
     assert documented == set(report._MD_INLINE_SPECIALS)
+
+
+def test_readme_mobile_prefixes_match_mobile_regex():
+    from devtools_common.llm import _MOBILE_RE
+
+    line = next(ln for ln in README.splitlines() if "+ 8 桁の 11 桁" in ln)
+    documented = set(re.findall(r"`(0\d0)`", line))
+    actual = {f"0{d}0" for d in range(10) if _MOBILE_RE.fullmatch(f"0{d}0" + "12345678")}
+    assert documented == actual
+
+
+def test_readme_documents_x_should_retry():
+    from devtools_common import llm
+
+    assert "x-should-retry" in Path(llm.__file__).read_text(encoding="utf-8")
+    assert "`x-should-retry`" in README
+
+
+def test_cache_read_ratio_matches_readme():
+    from devtools_common.llm import PRICES
+
+    line = next(ln for ln in README.splitlines() if "は 0.05 倍です" in ln)
+    half = set(re.findall(r"`(claude-[a-z0-9-]+)`", line))
+    for model, price in PRICES.items():
+        ratio = 0.05 if model in half else 0.1
+        assert price.cache_read == pytest.approx(price.input * ratio), model
+        assert price.cache_write == pytest.approx(price.input * 1.25), model
